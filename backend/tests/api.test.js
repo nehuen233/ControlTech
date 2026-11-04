@@ -78,10 +78,32 @@ test('el administrador existente inicia sesión y conserva sus permisos', async 
   assert.equal(n, 1, 'existe un único administrador');
 });
 
-test('solo se ofrecen los roles Docente y Docente de laboratorio', async () => {
+test('solo se ofrecen los roles Docente, Docente de laboratorio y Técnico', async () => {
   const r = await call('/roles/asignables', { token: admin.token });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.data.map((x) => x.nombre_rol), ['DOCENTE', 'DOCENTE DE LABORATORIO']);
+  assert.deepEqual(r.data.map((x) => x.nombre_rol), ['DOCENTE', 'DOCENTE DE LABORATORIO', 'TECNICO']);
+  assert.deepEqual(r.data.map((x) => x.etiqueta), ['Docente', 'Docente de laboratorio', 'Técnico']);
+});
+
+test('registro de un técnico: gestiona mantenimientos y equipos solo en sus laboratorios', async () => {
+  const email = `tecnico.${SUFIJO}@test.controltech`;
+  const r = await call('/usuarios', {
+    method: 'POST', token: admin.token,
+    body: { nombre: 'Tomas', apellido: 'Prueba', email, contrasena: 'Tecnico2026', id_rol: await idRol('TECNICO'), laboratorios: [await idLab('Laboratorio 5-2')] },
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.nombre_rol, 'TECNICO');
+  assert.equal(r.data.rolEtiqueta, 'Técnico');
+  const s = await login(email, 'Tecnico2026');
+  assert.equal(s.usuario.rol, 'TECNICO');
+  assert.equal((await call('/usuarios', { token: s.token })).status, 403, 'un técnico no gestiona usuarios');
+  const propio = await equipo('PC-5B-03');
+  const ajeno = await equipo('PC-4A-03');
+  const m = await call('/mantenimientos', { method: 'POST', token: s.token, body: { id_equipo: propio.id_equipo, fecha_mantenimiento: '2026-11-06', tipo: 'Preventivo', detalle: `Revisión técnico ${SUFIJO}` } });
+  assert.equal(m.status, 201, JSON.stringify(m.data));
+  assert.equal(m.data.responsable, 'Tomas Prueba');
+  assert.equal((await call('/mantenimientos', { method: 'POST', token: s.token, body: { id_equipo: ajeno.id_equipo, fecha_mantenimiento: '2026-11-06', tipo: 'Preventivo', detalle: 'x' } })).status, 403);
+  assert.equal((await call(`/equipos/${ajeno.id_equipo}`, { token: s.token })).status, 403);
 });
 
 test('registro de un docente', async () => {
@@ -110,7 +132,7 @@ test('registro de un docente de laboratorio', async () => {
   assert.deepEqual(rows.map((x) => x.nombre), ['Laboratorio 5-1']);
 });
 
-for (const rol of ['ADMINISTRADOR', 'TECNICO', 'ENCARGADO', 'DIRECTIVO']) {
+for (const rol of ['ADMINISTRADOR', 'ENCARGADO', 'DIRECTIVO']) {
   test(`la API rechaza asignar el rol ${rol} a un usuario nuevo`, async () => {
     const email = `rechazo.${rol.toLowerCase()}.${SUFIJO}@test.controltech`;
     const r = await call('/usuarios', {
@@ -118,7 +140,7 @@ for (const rol of ['ADMINISTRADOR', 'TECNICO', 'ENCARGADO', 'DIRECTIVO']) {
       body: { nombre: 'X', apellido: 'Y', email, contrasena: 'Segura2026', id_rol: await idRol(rol), laboratorios: [1] },
     });
     assert.equal(r.status, 403);
-    assert.match(r.data.error, /Solo se permiten Docente y Docente de laboratorio/);
+    assert.match(r.data.error, /Solo se permiten Docente, Docente de laboratorio y Técnico/);
     const [rows] = await db.query('SELECT 1 FROM usuarios WHERE email = ?', [email]);
     assert.equal(rows.length, 0, 'no se creó el usuario');
   });
@@ -152,16 +174,18 @@ test('la cuenta del administrador no puede cambiar de rol y no se asignan roles 
   const r = await call(`/usuarios/${adminAntes.id_usuario}/rol`, { method: 'PATCH', token: admin.token, body: { id_rol: await idRol('DOCENTE') } });
   assert.equal(r.status, 403);
   const [[doc]] = await db.query('SELECT id_usuario FROM usuarios WHERE email = ?', [`docente.${SUFIJO}@test.controltech`]);
-  const r2 = await call(`/usuarios/${doc.id_usuario}/rol`, { method: 'PATCH', token: admin.token, body: { id_rol: await idRol('TECNICO') } });
-  assert.equal(r2.status, 403);
-  const r3 = await call(`/usuarios/${doc.id_usuario}/rol`, { method: 'PATCH', token: admin.token, body: { id_rol: await idRol('ADMINISTRADOR') } });
-  assert.equal(r3.status, 403);
+  for (const prohibido of ['ADMINISTRADOR', 'ENCARGADO', 'DIRECTIVO']) {
+    const x = await call(`/usuarios/${doc.id_usuario}/rol`, { method: 'PATCH', token: admin.token, body: { id_rol: await idRol(prohibido) } });
+    assert.equal(x.status, 403, prohibido);
+  }
+  const aTecnico = await call(`/usuarios/${doc.id_usuario}/rol`, { method: 'PATCH', token: admin.token, body: { id_rol: await idRol('TECNICO') } });
+  assert.equal(aTecnico.status, 200);
+  assert.equal(aTecnico.data.nombre_rol, 'TECNICO');
   const r4 = await call(`/usuarios/${doc.id_usuario}/rol`, { method: 'PATCH', token: admin.token, body: { id_rol: await idRol('DOCENTE DE LABORATORIO') } });
   assert.equal(r4.status, 200);
   assert.equal(r4.data.nombre_rol, 'DOCENTE DE LABORATORIO');
-  // Los tecnicos existentes no se pueden reasignar desde el panel.
-  const [[tec]] = await db.query("SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu'");
-  assert.equal((await call(`/usuarios/${tec.id_usuario}/rol`, { method: 'PATCH', token: admin.token, body: { id_rol: await idRol('DOCENTE') } })).status, 403);
+  const [[{ n }]] = await db.query("SELECT COUNT(*) n FROM usuarios u JOIN roles r ON r.id_rol=u.id_rol WHERE r.nombre_rol='ADMINISTRADOR'");
+  assert.equal(n, 1, 'sigue habiendo un único administrador');
 });
 
 // ---------------- Mantenimientos ----------------

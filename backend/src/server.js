@@ -13,11 +13,19 @@ if (!process.env.JWT_SECRET) {
 const app = require('./app');
 const { pool } = require('./config/db');
 const { explicarErrorMySQL } = require('./config/diagnostico');
+const { asegurarRolesAsignables } = require('./controllers/usuariosController');
 
 const PORT = Number(process.env.PORT || 4000);
 
 pool.query('SELECT 1')
-  .then(() => console.log(`Conectado a MySQL (${process.env.DB_NAME || 'controltecchh'})`))
+  .then(async () => {
+    console.log(`Conectado a MySQL (${process.env.DB_NAME || 'controltecchh'})`);
+    const creados = await asegurarRolesAsignables().catch((err) => {
+      console.warn(`No se pudieron verificar los roles asignables: ${err.message}`);
+      return 0;
+    });
+    if (creados) console.log(`Se agregaron ${creados} rol(es) asignable(s) que faltaban en la tabla roles.`);
+  })
   .catch((err) => console.error(`No se pudo conectar a MySQL. ${explicarErrorMySQL(err)}\nEjecutá "npm run db:check" para diagnosticar.`));
 
 app.listen(PORT, () => console.log(`API ControlTech escuchando en http://localhost:${PORT}/api`));

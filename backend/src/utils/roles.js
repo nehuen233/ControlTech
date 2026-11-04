@@ -9,7 +9,8 @@ const ROLES = Object.freeze({
 });
 
 // Unicos roles que el administrador puede asignar a usuarios nuevos o existentes.
-const ROLES_ASIGNABLES = Object.freeze([ROLES.DOCENTE, ROLES.DOCENTE_LAB]);
+// Administrador, Encargado y Directivo nunca se asignan desde el sistema.
+const ROLES_ASIGNABLES = Object.freeze([ROLES.DOCENTE, ROLES.DOCENTE_LAB, ROLES.TECNICO]);
 
 // Roles que ven todos los laboratorios.
 const ROLES_TODOS_LOS_LABS = Object.freeze([ROLES.ADMIN, ROLES.DIRECTIVO]);
@@ -33,7 +34,13 @@ const ETIQUETAS = Object.freeze({
 
 const etiquetaRol = (nombre) => ETIQUETAS[nombre] || nombre;
 
+// "Docente, Docente de laboratorio o Técnico"
+function listaRolesAsignables(conjuncion = 'o') {
+  const e = ROLES_ASIGNABLES.map(etiquetaRol);
+  return `${e.slice(0, -1).join(', ')} ${conjuncion} ${e[e.length - 1]}`;
+}
+
 module.exports = {
   ROLES, ROLES_ASIGNABLES, ROLES_TODOS_LOS_LABS, ROLES_GESTION_MANTENIMIENTO,
-  ROLES_REPORTE_PROBLEMAS, etiquetaRol,
+  ROLES_REPORTE_PROBLEMAS, etiquetaRol, listaRolesAsignables,
 };
