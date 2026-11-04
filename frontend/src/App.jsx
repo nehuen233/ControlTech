@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from './AuthContext.jsx'
 import Login from './pages/Login.jsx'
 import Inicio from './pages/Inicio.jsx'
+import Laboratorios from './pages/Laboratorios.jsx'
 import Equipos from './pages/Equipos.jsx'
 import Mantenimientos from './pages/Mantenimientos.jsx'
 import Usuarios from './pages/Usuarios.jsx'
@@ -11,6 +12,7 @@ import { Cargando } from './components/ui.jsx'
 // de equipos con problemas y mantenimientos.
 const SECCIONES = [
   { id: 'inicio', titulo: 'Inicio', componente: Inicio },
+  { id: 'laboratorios', titulo: 'Laboratorios', componente: Laboratorios },
   { id: 'equipos', titulo: 'Equipos', componente: Equipos },
   { id: 'mantenimientos', titulo: 'Mantenimientos', componente: Mantenimientos },
   { id: 'usuarios', titulo: 'Usuarios', componente: Usuarios, soloAdmin: true },
@@ -62,7 +64,7 @@ export default function App() {
           <h1>{actual.titulo}</h1>
         </header>
         <main>
-          <Pagina />
+          <Pagina key={actual.id} />
         </main>
       </div>
     </div>

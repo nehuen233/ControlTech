@@ -4,7 +4,8 @@ const { autenticar, permitirRoles } = require('../middlewares/auth');
 const { ROLES, ROLES_GESTION_MANTENIMIENTO, ROLES_REPORTE_PROBLEMAS } = require('../utils/roles');
 const auth = require('../controllers/authController');
 const usuarios = require('../controllers/usuariosController');
-const catalogo = require('../controllers/catalogoController');
+const laboratorios = require('../controllers/laboratoriosController');
+const equipos = require('../controllers/equiposController');
 const mant = require('../controllers/mantenimientosController');
 const { pool } = require('../config/db');
 const { explicarErrorMySQL } = require('../config/diagnostico');
@@ -31,9 +32,19 @@ r.get('/usuarios', soloAdmin, h(usuarios.listar));
 r.post('/usuarios', soloAdmin, h(usuarios.crear));
 r.patch('/usuarios/:id/rol', soloAdmin, h(usuarios.actualizarRol));
 
-// Laboratorios y equipos (filtrados por los laboratorios del usuario)
-r.get('/laboratorios', autenticar, h(catalogo.laboratorios));
-r.get('/equipos', autenticar, h(catalogo.equipos));
+// Laboratorios (filtrados por los laboratorios del usuario; alta y edicion solo el administrador)
+r.get('/laboratorios', autenticar, h(laboratorios.listar));
+r.post('/laboratorios', soloAdmin, h(laboratorios.crear));
+r.get('/laboratorios/:id', autenticar, h(laboratorios.detalle));
+r.put('/laboratorios/:id', soloAdmin, h(laboratorios.actualizar));
+r.get('/laboratorios/:id/responsables', autenticar, permitirRoles(ROLES_GESTION_MANTENIMIENTO), h(laboratorios.responsables));
+
+// Equipos (alta y edicion: administrador y roles de gestion, en sus laboratorios)
+r.get('/software', autenticar, h(equipos.catalogoSoftware));
+r.get('/equipos', autenticar, h(equipos.listar));
+r.post('/equipos', autenticar, permitirRoles(ROLES_GESTION_MANTENIMIENTO), h(equipos.crear));
+r.get('/equipos/:id', autenticar, h(equipos.detalle));
+r.put('/equipos/:id', autenticar, permitirRoles(ROLES_GESTION_MANTENIMIENTO), h(equipos.actualizar));
 
 // Seccion unificada MANTENIMIENTOS
 const gestion = permitirRoles(ROLES_GESTION_MANTENIMIENTO);

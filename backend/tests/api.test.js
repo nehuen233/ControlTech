@@ -14,6 +14,8 @@ let db;
 let admin;
 let adminAntes;
 let mantenimientosAntes;
+let equiposAntes;
+let laboratoriosAntes;
 
 async function call(path, { method = 'GET', token, body } = {}) {
   const res = await fetch(`${API}${path}`, {
@@ -44,6 +46,8 @@ before(async () => {
   });
   [[adminAntes]] = await db.query("SELECT * FROM usuarios WHERE email = 'admin@controltech.com'");
   [mantenimientosAntes] = await db.query('SELECT * FROM mantenimientos ORDER BY id_mantenimiento');
+  [laboratoriosAntes] = await db.query('SELECT * FROM laboratorios WHERE id_laboratorio <= 6 ORDER BY id_laboratorio');
+  [equiposAntes] = await db.query("SELECT * FROM equipos WHERE nro_serie LIKE 'CT26-%' AND identificador NOT IN ('PC-4B-03','PC-4D-04') ORDER BY id_equipo");
   admin = await login('admin@controltech.com', 'Administrador1234');
 });
 
@@ -68,7 +72,8 @@ test('el administrador existente inicia sesión y conserva sus permisos', async 
   assert.equal(admin.usuario.laboratorios, null, 'el admin ve todos los laboratorios');
   assert.equal((await call('/usuarios', { token: admin.token })).status, 200);
   const labs = await call('/laboratorios', { token: admin.token });
-  assert.equal(labs.data.length, 6);
+  const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM laboratorios');
+  assert.equal(labs.data.length, total, 'el administrador ve todos los laboratorios');
   const [[{ n }]] = await db.query("SELECT COUNT(*) n FROM usuarios u JOIN roles r ON r.id_rol=u.id_rol WHERE r.nombre_rol='ADMINISTRADOR'");
   assert.equal(n, 1, 'existe un único administrador');
 });
@@ -293,12 +298,184 @@ test('administrador registra un mantenimiento en cualquier laboratorio', async (
   assert.equal(r.data.responsable, 'Juan Perez');
 });
 
+// ---------------- Laboratorios ----------------
+const LAB_TEST = `Laboratorio Prueba ${SUFIJO}`;
+let labTest;
+
+test('administrador: alta de laboratorio con validaciones y sin duplicados', async () => {
+  const sinNombre = await call('/laboratorios', { method: 'POST', token: admin.token, body: { piso: '6to piso' } });
+  assert.equal(sinNombre.status, 400);
+  assert.match(sinNombre.data.error, /nombre del laboratorio es obligatorio/);
+  const capMala = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: LAB_TEST, capacidad_equipos: -2 } });
+  assert.equal(capMala.status, 400);
+
+  const r = await call('/laboratorios', {
+    method: 'POST', token: admin.token,
+    body: { nombre: LAB_TEST, descripcion: 'Laboratorio de pruebas', edificio: 'Anexo', piso: '6to piso', ubicacion: 'Ala norte', capacidad_equipos: 2, codigo_acceso: 'TARJ-99' },
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.estado, 'Activo');
+  assert.equal(r.data.codigo_acceso, 'TARJ-99');
+  labTest = r.data.id_laboratorio;
+  const [asig] = await db.query('SELECT 1 FROM usuario_laboratorio WHERE id_usuario = ? AND id_laboratorio = ?', [adminAntes.id_usuario, labTest]);
+  assert.equal(asig.length, 1, 'el administrador queda asignado al laboratorio nuevo');
+  const dup = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `  ${LAB_TEST.toUpperCase()} ` } });
+  assert.equal(dup.status, 409);
+  const dupExistente = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: 'Laboratorio 4-1' } });
+  assert.equal(dupExistente.status, 409);
+});
+
+test('solo el administrador crea o edita laboratorios', async () => {
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  assert.equal((await call('/laboratorios', { method: 'POST', token: maria.token, body: { nombre: `X ${SUFIJO}` } })).status, 403);
+  assert.equal((await call(`/laboratorios/${await idLab('Laboratorio 4-2')}`, { method: 'PUT', token: maria.token, body: { piso: 'x' } })).status, 403);
+});
+
+test('detalle de laboratorio y restricción por laboratorio asignado', async () => {
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  const propio = await call(`/laboratorios/${await idLab('Laboratorio 4-2')}`, { token: maria.token });
+  assert.equal(propio.status, 200);
+  assert.equal(propio.data.total_equipos >= 12, true);
+  assert.ok(propio.data.equipos_por_estado.length > 0);
+  assert.ok(propio.data.usuarios.some((u) => u.nombre === 'Maria'));
+  assert.equal('codigo_acceso' in propio.data, false, 'el código de acceso solo lo ve el administrador');
+  assert.equal((await call(`/laboratorios/${await idLab('Laboratorio 4-1')}`, { token: maria.token })).status, 403);
+  const lista = await call('/laboratorios', { token: maria.token });
+  assert.deepEqual(lista.data.map((l) => l.nombre), ['Laboratorio 4-2', 'Laboratorio 4-3']);
+});
+
+test('edición de laboratorio', async () => {
+  const r = await call(`/laboratorios/${labTest}`, { method: 'PUT', token: admin.token, body: { ubicacion: 'Ala sur', capacidad_equipos: 3 } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.ubicacion, 'Ala sur');
+  assert.equal(r.data.capacidad_equipos, 3);
+  const bajo = await call(`/laboratorios/${await idLab('Laboratorio 4-1')}`, { method: 'PUT', token: admin.token, body: { capacidad_equipos: 5 } });
+  assert.equal(bajo.status, 400);
+  assert.match(bajo.data.error, /no puede ser menor/);
+  assert.equal((await call(`/laboratorios/${labTest}`, { method: 'PUT', token: admin.token, body: { estado: 'Cerrado' } })).status, 400);
+});
+
+// ---------------- Informacion de equipos ----------------
+test('ficha completa de un equipo con software y licencias', async () => {
+  const eq = await equipo('PC-4D-01'); // Lab 4-4: Chrome, Office, VS Code y Visual Studio 2022
+  const r = await call(`/equipos/${eq.id_equipo}`, { token: admin.token });
+  assert.equal(r.status, 200);
+  for (const k of ['identificador', 'nro_serie', 'tipo', 'marca', 'modelo', 'procesador', 'ram', 'almacenamiento', 'estado', 'laboratorio', 'responsable', 'fecha_registro']) {
+    assert.ok(k in r.data, `falta ${k}`);
+  }
+  assert.deepEqual(r.data.software.map((s) => s.nombre_software).sort(), ['Google Chrome', 'Microsoft Office 365', 'Visual Studio 2022', 'Visual Studio Code']);
+  assert.equal(r.data.software.find((s) => s.nombre_software === 'Visual Studio 2022').tipo_licencia, 'Prueba');
+  assert.ok('total' in r.data.mantenimientos && Array.isArray(r.data.problemas_activos));
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  assert.equal((await call(`/equipos/${eq.id_equipo}`, { token: maria.token })).status, 403);
+});
+
+test('alta de equipo con software, responsable y validaciones', async () => {
+  const [[sw]] = await db.query("SELECT id_software FROM software WHERE nombre_software = 'Google Chrome'");
+  const base = {
+    identificador: `pc-t-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-1`, marca: 'Dell', modelo: 'OptiPlex 3000', procesador: 'Intel Core i5-12500',
+    ram: '16 GB', almacenamiento: '512 GB SSD', id_laboratorio: labTest, id_responsable: adminAntes.id_usuario,
+    software: [{ id_software: sw.id_software, fecha_instalacion: '2026-11-01' }],
+  };
+  const r = await call('/equipos', { method: 'POST', token: admin.token, body: base });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.identificador, `PC-T-${SUFIJO}`.toUpperCase());
+  assert.equal(r.data.estado, 'Operativo');
+  assert.equal(r.data.responsable, 'Juan Perez');
+  assert.equal(r.data.software.length, 1);
+  assert.equal(r.data.software[0].fecha_instalacion, '2026-11-01');
+
+  const dupId = await call('/equipos', { method: 'POST', token: admin.token, body: { ...base, nro_serie: `SER-${SUFIJO}-2` } });
+  assert.equal(dupId.status, 409);
+  assert.match(dupId.data.error, /identificador/);
+  const dupSerie = await call('/equipos', { method: 'POST', token: admin.token, body: { ...base, identificador: `PC-T2-${SUFIJO}` } });
+  assert.equal(dupSerie.status, 409);
+  assert.match(dupSerie.data.error, /número de serie/);
+  const [[pedro]] = await db.query("SELECT id_usuario FROM usuarios WHERE email = 'pedro@suiza26.edu'");
+  const respAjeno = await call('/equipos', { method: 'POST', token: admin.token, body: { ...base, identificador: `PC-T3-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-3`, id_responsable: pedro.id_usuario } });
+  assert.equal(respAjeno.status, 400);
+  assert.match(respAjeno.data.error, /responsable debe ser un usuario asignado/);
+  const faltantes = await call('/equipos', { method: 'POST', token: admin.token, body: { id_laboratorio: labTest } });
+  assert.equal(faltantes.status, 400);
+  assert.ok(faltantes.data.detalles.length >= 3);
+  const swMalo = await call('/equipos', { method: 'POST', token: admin.token, body: { ...base, identificador: `PC-T4-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-4`, software: [{ id_software: 99999 }] } });
+  assert.equal(swMalo.status, 400);
+});
+
+test('capacidad y estado del laboratorio al agregar equipos', async () => {
+  // Capacidad 3: ya tiene 1 equipo; se agregan 2 y el tercero se rechaza.
+  for (const n of [5, 6]) {
+    const r = await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-T${n}-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-${n}`, marca: 'HP', id_laboratorio: labTest } });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+  }
+  const lleno = await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-T7-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-7`, marca: 'HP', id_laboratorio: labTest } });
+  assert.equal(lleno.status, 409);
+  assert.match(lleno.data.error, /capacidad máxima/);
+
+  const inactivo = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `${LAB_TEST} inactivo`, estado: 'Inactivo' } });
+  assert.equal(inactivo.status, 201);
+  const r = await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-T8-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-8`, marca: 'HP', id_laboratorio: inactivo.data.id_laboratorio } });
+  assert.equal(r.status, 400);
+  assert.match(r.data.error, /inactivo/);
+});
+
+test('edición de equipo: datos, software y registro en el historial', async () => {
+  const [[eq]] = await db.query('SELECT id_equipo FROM equipos WHERE identificador = ?', [`PC-T-${SUFIJO}`.toUpperCase()]);
+  const sw = (await db.query("SELECT id_software, nombre_software FROM software WHERE nombre_software IN ('Visual Studio Code','XAMPP')"))[0];
+  const r = await call(`/equipos/${eq.id_equipo}`, {
+    method: 'PUT', token: admin.token,
+    body: { ram: '32 GB', estado: 'En uso', software: sw.map((s) => ({ id_software: s.id_software, fecha_instalacion: '2026-11-03' })) },
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.ram, '32 GB');
+  assert.equal(r.data.estado, 'En uso');
+  assert.deepEqual(r.data.software.map((s) => s.nombre_software).sort(), ['Visual Studio Code', 'XAMPP']);
+  assert.equal(r.data.marca, 'Dell', 'los campos no enviados se conservan');
+  const [acc] = await db.query("SELECT accion FROM historial_acciones WHERE entidad = 'Equipo' AND id_registro = ? ORDER BY id_accion", [eq.id_equipo]);
+  assert.deepEqual(acc.map((a) => a.accion), ['Crear', 'Modificar']);
+  const dupSerie = await call(`/equipos/${eq.id_equipo}`, { method: 'PUT', token: admin.token, body: { nro_serie: 'CT26-4A-001' } });
+  assert.equal(dupSerie.status, 409);
+});
+
+test('permisos: docente de laboratorio gestiona equipos solo en sus laboratorios; docente no', async () => {
+  const email = `equipos.${SUFIJO}@test.controltech`;
+  const alta = await call('/usuarios', {
+    method: 'POST', token: admin.token,
+    body: { nombre: 'Eva', apellido: 'Prueba', email, contrasena: 'Equipos2026', id_rol: await idRol('DOCENTE DE LABORATORIO'), laboratorios: [labTest] },
+  });
+  assert.equal(alta.status, 201);
+  const s = await login(email, 'Equipos2026');
+  const [[eq]] = await db.query('SELECT id_equipo FROM equipos WHERE identificador = ?', [`PC-T5-${SUFIJO}`]);
+  const ed = await call(`/equipos/${eq.id_equipo}`, { method: 'PUT', token: s.token, body: { modelo: 'EliteDesk 800', id_responsable: alta.data.id_usuario } });
+  assert.equal(ed.status, 200, JSON.stringify(ed.data));
+  assert.equal(ed.data.responsable, 'Eva Prueba');
+  const resp = await call(`/laboratorios/${labTest}/responsables`, { token: s.token });
+  assert.ok(resp.data.some((u) => u.id_usuario === alta.data.id_usuario));
+  const ajeno = await equipo('PC-4A-02');
+  assert.equal((await call(`/equipos/${ajeno.id_equipo}`, { method: 'PUT', token: s.token, body: { ram: '64 GB' } })).status, 403);
+  assert.equal((await call(`/equipos/${eq.id_equipo}`, { method: 'PUT', token: s.token, body: { id_laboratorio: await idLab('Laboratorio 4-1') } })).status, 403);
+  assert.equal((await call('/equipos', { method: 'POST', token: s.token, body: { identificador: `PC-X-${SUFIJO}`, nro_serie: `SER-X-${SUFIJO}`, marca: 'HP', id_laboratorio: await idLab('Laboratorio 4-1') } })).status, 403);
+
+  const pedro = await login('pedro@suiza26.edu', 'demo123');
+  const propio = await equipo('PC-4A-05');
+  assert.equal((await call(`/equipos/${propio.id_equipo}`, { token: pedro.token })).status, 200, 'el docente consulta la ficha');
+  assert.equal((await call(`/equipos/${propio.id_equipo}`, { method: 'PUT', token: pedro.token, body: { ram: '64 GB' } })).status, 403);
+  assert.equal((await call('/equipos', { method: 'POST', token: pedro.token, body: {} })).status, 403);
+});
+
 // ---------------- Conservacion de datos ----------------
 test('se conservan los mantenimientos anteriores y la cuenta del administrador', async () => {
   const [despues] = await db.query('SELECT * FROM mantenimientos WHERE id_mantenimiento IN (?) ORDER BY id_mantenimiento', [mantenimientosAntes.map((m) => m.id_mantenimiento)]);
   assert.deepEqual(despues, mantenimientosAntes);
   const [[adminDespues]] = await db.query("SELECT * FROM usuarios WHERE email = 'admin@controltech.com'");
   assert.deepEqual(adminDespues, adminAntes);
-  const [labs] = await db.query('SELECT id_laboratorio FROM usuario_laboratorio WHERE id_usuario = ?', [adminAntes.id_usuario]);
+  const [labs] = await db.query('SELECT id_laboratorio FROM usuario_laboratorio WHERE id_usuario = ? AND id_laboratorio <= 6', [adminAntes.id_usuario]);
   assert.equal(labs.length, 6);
+});
+
+test('se conservan los laboratorios y equipos originales', async () => {
+  const [labs] = await db.query('SELECT * FROM laboratorios WHERE id_laboratorio <= 6 ORDER BY id_laboratorio');
+  assert.deepEqual(labs, laboratoriosAntes);
+  const [eqs] = await db.query("SELECT * FROM equipos WHERE nro_serie LIKE 'CT26-%' AND identificador NOT IN ('PC-4B-03','PC-4D-04') ORDER BY id_equipo");
+  assert.deepEqual(eqs, equiposAntes);
 });

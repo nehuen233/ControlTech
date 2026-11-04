@@ -98,6 +98,18 @@ Son pruebas de integración contra la API y MySQL reales. **Agregan** registros 
 - La cuenta del administrador está protegida: no se puede cambiar su rol, ni duplicar su email, ni crear otro administrador. No existe un endpoint para eliminar usuarios.
 - Las cuentas cargadas por los scripts SQL guardan la contraseña en texto plano; el login las acepta sin modificarlas. Las cuentas nuevas se guardan con hash bcrypt.
 
+## Sección Laboratorios
+
+- Listado de los laboratorios (el administrador ve todos; el resto, los asignados) con ubicación, ocupación (equipos / capacidad) y equipos con problemas.
+- Detalle de cada laboratorio: equipos por estado, usuarios asignados y mantenimientos abiertos.
+- **Alta y edición solo para el administrador**, con validación de nombre único y de capacidad (no puede quedar por debajo de los equipos registrados). El código de acceso solo lo ve el administrador. Los laboratorios no se eliminan: se marcan como *Inactivo*.
+
+## Información de equipos
+
+- Ficha completa de cada equipo: datos generales, especificaciones, responsable, software instalado con su licencia (`equipo_software`, `software`, `licencias`), resumen de mantenimientos y problemas activos.
+- **Alta y edición** para el administrador y los roles de gestión (Técnico, Encargado, Docente de laboratorio) dentro de sus laboratorios. Se valida: identificador y número de serie únicos, laboratorio activo y con capacidad disponible, y responsable asignado al laboratorio del equipo.
+- Los docentes consultan la ficha pero no modifican equipos.
+
 ## Sección Mantenimientos (unificada)
 
 Reúne en una sola entrada de navegación:
@@ -127,7 +139,11 @@ Correspondencia con las tablas existentes:
 | GET | `/api/roles/asignables` | administrador |
 | GET / POST | `/api/usuarios` | administrador |
 | PATCH | `/api/usuarios/:id/rol` | administrador |
-| GET | `/api/laboratorios`, `/api/equipos` | autenticado (filtrado por laboratorio) |
+| GET | `/api/laboratorios`, `/api/laboratorios/:id` | autenticado (filtrado por laboratorio) |
+| POST / PUT | `/api/laboratorios`, `/api/laboratorios/:id` | administrador |
+| GET | `/api/laboratorios/:id/responsables` | gestión |
+| GET | `/api/equipos`, `/api/equipos/:id`, `/api/software` | autenticado (filtrado por laboratorio) |
+| POST / PUT | `/api/equipos`, `/api/equipos/:id` | gestión, en sus laboratorios |
 | GET | `/api/mantenimientos/resumen` | autenticado |
 | GET | `/api/mantenimientos/equipos-con-problemas` | autenticado |
 | GET | `/api/mantenimientos/historial/:idEquipo` | autenticado |
