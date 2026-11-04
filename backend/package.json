@@ -8,7 +8,8 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test tests/*.test.js",
-    "db:check": "node scripts/db-check.js"
+    "db:check": "node scripts/db-check.js",
+    "db:cargar": "node scripts/cargar-datos.js"
   },
   "engines": {
     "node": ">=18"
