@@ -7,7 +7,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': process.env.VITE_API_TARGET || 'http://localhost:4000',
+      // 127.0.0.1 evita que en Windows "localhost" se resuelva a IPv6 (::1).
+      '/api': process.env.VITE_API_TARGET || 'http://127.0.0.1:4000',
     },
   },
 })

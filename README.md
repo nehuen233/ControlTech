@@ -69,7 +69,9 @@ npm install
 npm run dev            # http://localhost:5173
 ```
 
-Vite redirige `/api` al backend en `http://localhost:4000` (configurable con `VITE_API_TARGET`).
+Vite redirige `/api` al backend en `http://127.0.0.1:4000` (configurable con `VITE_API_TARGET`).
+
+> El backend y el frontend deben estar corriendo **a la vez**, cada uno en su terminal. Si el navegador muestra **error 502** o "No se pudo conectar con el backend", el backend está detenido o se cerró con un error: revisá su terminal y volvé a ejecutar `npm start` en `backend/`. Cada cambio en `backend/.env` requiere reiniciar el backend.
 
 ## 4. Pruebas
 
