@@ -44,7 +44,13 @@ cd backend
 npm run db:check
 ```
 
-El comando indica la causa exacta y cómo resolverla. Los casos más comunes:
+El comando indica la causa exacta y cómo resolverla. Para verificar además un usuario (por ejemplo, si el login devuelve 401):
+
+```bash
+npm run db:check -- admin@controltech.com Administrador1234
+```
+
+Los casos más comunes:
 
 | Mensaje | Solución |
 |---|---|
