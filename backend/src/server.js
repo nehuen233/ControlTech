@@ -12,11 +12,12 @@ if (!process.env.JWT_SECRET) {
 
 const app = require('./app');
 const { pool } = require('./config/db');
+const { explicarErrorMySQL } = require('./config/diagnostico');
 
 const PORT = Number(process.env.PORT || 4000);
 
 pool.query('SELECT 1')
   .then(() => console.log(`Conectado a MySQL (${process.env.DB_NAME || 'controltecchh'})`))
-  .catch((err) => console.error('No se pudo conectar a MySQL:', err.message));
+  .catch((err) => console.error(`No se pudo conectar a MySQL. ${explicarErrorMySQL(err)}\nEjecutá "npm run db:check" para diagnosticar.`));
 
 app.listen(PORT, () => console.log(`API ControlTech escuchando en http://localhost:${PORT}/api`));
