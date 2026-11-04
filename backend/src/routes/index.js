@@ -7,13 +7,18 @@ const usuarios = require('../controllers/usuariosController');
 const catalogo = require('../controllers/catalogoController');
 const mant = require('../controllers/mantenimientosController');
 const { pool } = require('../config/db');
+const { explicarErrorMySQL } = require('../config/diagnostico');
 
 const r = Router();
 
-r.get('/health', h(async (req, res) => {
-  await pool.query('SELECT 1');
-  res.json({ ok: true, db: 'conectada' });
-}));
+r.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true, db: 'conectada' });
+  } catch (err) {
+    res.status(503).json({ ok: false, db: 'sin conexión', error: explicarErrorMySQL(err) });
+  }
+});
 
 // Autenticacion
 r.post('/auth/login', h(auth.login));

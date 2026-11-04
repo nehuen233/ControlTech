@@ -37,6 +37,30 @@ npm start              # http://localhost:4000/api
 
 `GET http://localhost:4000/api/health` responde `{"ok":true,"db":"conectada"}` si la conexión con MySQL funciona.
 
+### Si el backend no se conecta a MySQL
+
+```bash
+cd backend
+npm run db:check
+```
+
+El comando indica la causa exacta y cómo resolverla. Para verificar además un usuario (por ejemplo, si el login devuelve 401):
+
+```bash
+npm run db:check -- admin@controltech.com Administrador1234
+```
+
+Los casos más comunes:
+
+| Mensaje | Solución |
+|---|---|
+| MySQL no responde en 127.0.0.1:3306 | Iniciar MySQL (en XAMPP: *Start* en MySQL) y revisar `DB_PORT`. |
+| MySQL rechazó al usuario… | Corregir `DB_USER` / `DB_PASSWORD` en `backend/.env` (en XAMPP: `root` y contraseña vacía). |
+| La base "…" no existe… | Poner en `DB_NAME` el nombre real de la base (`controltecchh` según `BD CONTROLTECH.sql`). |
+| Método de autenticación no compatible | `ALTER USER 'usuario'@'localhost' IDENTIFIED WITH mysql_native_password BY 'clave';` |
+
+Recordá crear el archivo `backend/.env` a partir de `backend/.env.example`: sin él se usan los valores por defecto.
+
 ## 3. Frontend (React)
 
 ```bash
