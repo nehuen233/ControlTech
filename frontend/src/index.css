@@ -72,6 +72,7 @@ main { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
 
 /* Botones */
 .btn { font: inherit; font-weight: 600; font-size: .9rem; border-radius: 8px; padding: .55rem 1rem; cursor: pointer; border: 1px solid transparent; white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn-primario { background: var(--primary); color: #fff; }
 .btn-primario:hover:not(:disabled) { background: var(--primary-hover); }
@@ -144,6 +145,26 @@ tr:last-child td { border-bottom: 0; }
 .fila-titulo { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .abiertos { display: flex; flex-direction: column; gap: .3rem; }
 
+/* Laboratorios */
+.lista-labs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; align-items: start; }
+.tarjeta-lab { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; display: flex; flex-direction: column; gap: .75rem; background: var(--surface); }
+.tarjeta-lab header { display: flex; justify-content: space-between; gap: .5rem; align-items: flex-start; }
+.tarjeta-lab p { margin: 0; }
+.tarjeta-lab footer { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.barra-ocupacion { height: 6px; border-radius: 999px; background: var(--neutral-soft); overflow: hidden; }
+.barra-ocupacion span { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
+
+/* Fichas */
+.ficha { display: flex; flex-direction: column; gap: .5rem; }
+.ficha > p { margin: 0; }
+.ficha h4 { margin-top: .75rem; }
+.datos-ficha { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); row-gap: .75rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .75rem; font-size: .88rem; }
+.lista-simple { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; font-size: .9rem; }
+.lista-software { display: flex; flex-direction: column; gap: .45rem; }
+.fila-software { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
+.fila-software input[type="date"] { width: auto; }
+
 /* Historial */
 .historial-cabecera { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
 .historial-columnas { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
@@ -171,6 +192,7 @@ tr:last-child td { border-bottom: 0; }
   main { padding: 1rem; }
   .topbar { padding: .85rem 1rem; }
   .historial-columnas { grid-template-columns: 1fr; }
-  .lista-problemas { grid-template-columns: 1fr; }
+  .lista-problemas, .lista-labs { grid-template-columns: 1fr; }
+  .datos { grid-template-columns: repeat(2, 1fr); }
   .filtros label { min-width: 0; flex: 1 1 140px; }
 }

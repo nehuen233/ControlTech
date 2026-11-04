@@ -34,6 +34,10 @@ export async function api(path, { method = 'GET', body, params } = {}) {
     throw new ApiError(0, 'No se pudo conectar con el servidor de ControlTech.')
   }
   const data = await res.json().catch(() => null)
+  // 502/503/504 sin cuerpo JSON: el proxy de Vite no llega al backend Express.
+  if ([502, 503, 504].includes(res.status) && !data?.error) {
+    throw new ApiError(res.status, 'No se pudo conectar con el backend de ControlTech (puerto 4000). Verificá que esté corriendo con "npm start" en la carpeta backend.')
+  }
   if (!res.ok) {
     if (res.status === 401 && path !== '/auth/login') onUnauthorized()
     throw new ApiError(res.status, data?.error || `Error ${res.status}`, data?.detalles)

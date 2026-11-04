@@ -12,9 +12,12 @@ const TONOS = {
 export const ETIQUETA_TIPO = { Actualizacion: 'Actualización', Critica: 'Crítica' }
 export const etiqueta = (v) => ETIQUETA_TIPO[v] || v
 
-export function Badge({ value }) {
+const TONOS_LICENCIA = { Activa: 'ok', Vencida: 'danger', Suspendida: 'neutral' }
+
+export function Badge({ value, licencia = false }) {
   if (!value) return null
-  return <span className={`badge badge-${TONOS[value] || 'neutral'}`}>{etiqueta(value)}</span>
+  const tono = (licencia ? TONOS_LICENCIA[value] : TONOS[value]) || 'neutral'
+  return <span className={`badge badge-${tono}`}>{etiqueta(value)}</span>
 }
 
 export function Alerta({ tipo = 'error', children, onClose }) {
