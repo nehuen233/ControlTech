@@ -19,7 +19,20 @@ mysql -u root -p < "BD CONTROLTECH.sql"
 mysql -u root -p < "CONTROL TECH INSERTS.sql"
 ```
 
-Si ya existe (con el administrador cargado) **no** vuelvas a ejecutar estos scripts. Solo creá un usuario para la aplicación (opcional, recomendado):
+Si ya existe (con el administrador cargado) **no** vuelvas a ejecutar estos scripts: duplicarían registros.
+
+### Cargar laboratorios y equipos en una base existente
+
+Si el sistema no muestra laboratorios ni equipos, cargalos de forma segura (con el backend configurado en `backend/.env`):
+
+```bash
+cd backend
+npm run db:cargar
+```
+
+Carga los 6 laboratorios, las 72 computadoras, el software, las licencias y las instalaciones de `CONTROL TECH INSERTS.sql` (archivo `backend/sql/datos_iniciales.sql`). **Solo agrega lo que falta** y se puede repetir sin duplicar nada. No crea ni modifica usuarios (el administrador queda intacto), no reinstala software quitado a mano y no toca equipos ni laboratorios creados después. El archivo SQL también puede ejecutarse desde phpMyAdmin con la base seleccionada.
+
+`npm run db:check` muestra cuántos laboratorios y equipos tiene la base. Solo creá un usuario para la aplicación (opcional, recomendado):
 
 ```sql
 CREATE USER 'controltech'@'localhost' IDENTIFIED BY 'una-clave';

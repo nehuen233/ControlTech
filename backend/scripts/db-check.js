@@ -51,6 +51,17 @@ const TABLAS = ['roles', 'laboratorios', 'usuarios', 'usuario_laboratorio', 'equ
     const faltan = TABLAS.filter((t) => !existentes.includes(t));
     if (faltan.length) console.log(`ERR Faltan tablas: ${faltan.join(', ')}`);
     else console.log(`OK  Las ${TABLAS.length} tablas del modelo existen`);
+    if (!faltan.length) {
+      const conteo = {};
+      for (const t of ['laboratorios', 'equipos', 'software', 'mantenimientos']) {
+        const [[r]] = await pool.query(`SELECT COUNT(*) AS n FROM ${t}`);
+        conteo[t] = Number(r.n);
+      }
+      console.log(`OK  Registros: ${Object.entries(conteo).map(([t, n]) => `${n} ${t}`).join(', ')}`);
+      if (!conteo.laboratorios || !conteo.equipos) {
+        console.log('AVISO No hay laboratorios o equipos cargados. Ejecutá "npm run db:cargar" para cargarlos desde los datos del repositorio.');
+      }
+    }
     const [admins] = await pool.query("SELECT u.email FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE r.nombre_rol = 'ADMINISTRADOR'");
     console.log(admins.length ? `OK  Administrador: ${admins.map((a) => a.email).join(', ')}` : 'ERR No hay ningún usuario ADMINISTRADOR');
     let credOk = true;
