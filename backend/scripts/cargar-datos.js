@@ -46,7 +46,7 @@ async function contar(conn) {
     if (despues.usuarios !== antes.usuarios) throw new Error('Se modificó la tabla de usuarios (no debería ocurrir).');
     console.log('\nOK  Carga completa. Los usuarios (incluido el administrador) no se modificaron.');
   } catch (err) {
-    await conn.rollback().catch(() => {});
+    await conn.rollback().catch(() => { });
     console.error(`ERR No se pudo completar la carga; no se guardó ningún cambio. ${err.code ? explicarErrorMySQL(err) : err.message}`);
     process.exitCode = 1;
   } finally {
