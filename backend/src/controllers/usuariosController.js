@@ -1,13 +1,22 @@
 const { query, withTransaction } = require('../config/db');
 const { HttpError } = require('../utils/httpError');
 const { hashContrasena } = require('../utils/password');
-const { ROLES, ROLES_ASIGNABLES, etiquetaRol } = require('../utils/roles');
+const { ROLES, ROLES_ASIGNABLES, etiquetaRol, listaRolesAsignables } = require('../utils/roles');
 const { registrarAccion } = require('../utils/historial');
 const { texto, enteroPositivo } = require('../utils/validacion');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Crea los roles asignables que falten en `roles` (nombre_rol es UNIQUE: no duplica).
+// Necesario si la base se creo solo con "BD CONTROLTECH.sql", que no incluye
+// TECNICO ni DOCENTE DE LABORATORIO.
+async function asegurarRolesAsignables() {
+  const r = await query('INSERT IGNORE INTO roles (nombre_rol) VALUES ?', [ROLES_ASIGNABLES.map((n) => [n])]);
+  return r.affectedRows;
+}
+
 async function rolesAsignables(req, res) {
+  await asegurarRolesAsignables();
   const rows = await query(
     'SELECT id_rol, nombre_rol FROM roles WHERE nombre_rol IN (?) ORDER BY FIELD(nombre_rol, ?)',
     [ROLES_ASIGNABLES, ROLES_ASIGNABLES],
@@ -19,7 +28,7 @@ async function rolesAsignables(req, res) {
 // Rechaza Administrador, Tecnico y cualquier otro rol aunque se envie directo a la API.
 async function resolverRolAsignable(idRol) {
   if (idRol === undefined || idRol === null || idRol === '') {
-    throw new HttpError(400, 'Seleccioná un rol: Docente o Docente de laboratorio.');
+    throw new HttpError(400, `Seleccioná un rol: ${listaRolesAsignables('o')}.`);
   }
   const id = enteroPositivo(idRol, 'El rol');
   const rows = await query('SELECT id_rol, nombre_rol FROM roles WHERE id_rol = ?', [id]);
@@ -27,7 +36,7 @@ async function resolverRolAsignable(idRol) {
   if (!ROLES_ASIGNABLES.includes(rows[0].nombre_rol)) {
     throw new HttpError(
       403,
-      `No se puede asignar el rol ${etiquetaRol(rows[0].nombre_rol)}. Solo se permiten Docente y Docente de laboratorio.`,
+      `No se puede asignar el rol ${etiquetaRol(rows[0].nombre_rol)}. Solo se permiten ${listaRolesAsignables('y')}.`,
     );
   }
   return rows[0];
@@ -140,4 +149,4 @@ async function actualizarRol(req, res) {
   res.json({ id_usuario: id, id_rol: rol.id_rol, nombre_rol: rol.nombre_rol, rolEtiqueta: etiquetaRol(rol.nombre_rol) });
 }
 
-module.exports = { rolesAsignables, listar, crear, actualizarRol };
+module.exports = { asegurarRolesAsignables, rolesAsignables, listar, crear, actualizarRol };

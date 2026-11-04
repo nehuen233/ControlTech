@@ -107,7 +107,8 @@ Son pruebas de integración contra la API y MySQL reales. **Agregan** registros 
 | Docente de laboratorio | Asignados | Gestiona | — |
 | Docente | Asignados | Consulta y reporta problemas | — |
 
-- Al registrar o reasignar usuarios solo se aceptan **Docente** y **Docente de laboratorio**; cualquier otro rol se rechaza con `403`, aunque se envíe directo a la API.
+- Al registrar o reasignar usuarios solo se aceptan **Docente**, **Docente de laboratorio** y **Técnico**; Administrador, Encargado y Directivo se rechazan con `403`, aunque se envíen directo a la API.
+- Si la base se creó solo con `BD CONTROLTECH.sql` (que no incluye TECNICO ni DOCENTE DE LABORATORIO), el backend agrega esos roles a la tabla `roles` al iniciar, sin duplicar ni modificar los existentes.
 - La cuenta del administrador está protegida: no se puede cambiar su rol, ni duplicar su email, ni crear otro administrador. No existe un endpoint para eliminar usuarios.
 - Las cuentas cargadas por los scripts SQL guardan la contraseña en texto plano; el login las acepta sin modificarlas. Las cuentas nuevas se guardan con hash bcrypt.
 

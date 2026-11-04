@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api.js'
 import { Alerta, Cargando, Modal } from '../components/ui.jsx'
 
+// "Docente, Docente de laboratorio o Técnico", segun los roles que devuelve el backend.
+const listar = (roles, conj) => {
+  const e = roles.map((r) => r.etiqueta)
+  return e.length > 1 ? `${e.slice(0, -1).join(', ')} ${conj} ${e[e.length - 1]}` : e.join('')
+}
+
 export default function Usuarios() {
   const [usuarios, setUsuarios] = useState(null)
   const [roles, setRoles] = useState([])
@@ -16,7 +22,7 @@ export default function Usuarios() {
 
   useEffect(() => {
     cargar()
-    // Solo se reciben los roles asignables (Docente y Docente de laboratorio).
+    // Solo se reciben los roles asignables (Docente, Docente de laboratorio y Técnico).
     api('/roles/asignables').then(setRoles).catch((e) => setError(e.message))
     api('/laboratorios').then(setLabs).catch((e) => setError(e.message))
   }, [cargar])
@@ -26,7 +32,7 @@ export default function Usuarios() {
   return (
     <section className="panel">
       <div className="barra-acciones">
-        <p className="texto-suave">Los usuarios nuevos solo pueden registrarse como Docente o Docente de laboratorio.</p>
+        <p className="texto-suave">{roles.length ? `Los usuarios nuevos pueden registrarse como ${listar(roles, 'o')}.` : 'Cargando roles…'}</p>
         <button type="button" className="btn btn-primario" onClick={() => setModal({ tipo: 'nuevo' })} disabled={!roles.length}>Registrar usuario</button>
       </div>
       <Alerta>{error}</Alerta>
@@ -75,7 +81,7 @@ function FormUsuario({ roles, labs, usuario, onClose, onGuardado }) {
   const submit = async (e) => {
     e.preventDefault()
     setError('')
-    if (!f.id_rol) return setError('Seleccioná un rol: Docente o Docente de laboratorio.')
+    if (!f.id_rol) return setError(`Seleccioná un rol: ${listar(roles, 'o')}.`)
     if (!f.laboratorios.length) return setError('Asigná al menos un laboratorio al usuario.')
     setEnviando(true)
     try {
