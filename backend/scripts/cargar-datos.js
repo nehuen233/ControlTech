@@ -1,55 +1,44 @@
-// Carga segura de laboratorios, equipos y software desde sql/datos_iniciales.sql.
-// Solo agrega lo que falta: se puede ejecutar varias veces sin duplicar datos.
+// Carga los datos iniciales de ControlTech: los 5 laboratorios, sus computadoras (propias
+// de cada laboratorio), el software, las licencias y las asignaciones de los usuarios de
+// demostracion que existan. Solo agrega lo que falta: se puede ejecutar varias veces.
 // Uso: npm run db:cargar
 require('dotenv').config({ quiet: true });
-const fs = require('fs');
-const path = require('path');
-const mysql = require('mysql2/promise');
+const { pool, query } = require('../src/config/db');
 const { explicarErrorMySQL } = require('../src/config/diagnostico');
+const { asegurarDatosIniciales, asignarUsuariosDemo } = require('../src/config/datosIniciales');
 
 const TABLAS = ['laboratorios', 'equipos', 'software', 'licencias', 'equipo_software', 'usuario_laboratorio', 'usuarios'];
 
-async function contar(conn) {
+async function contar() {
   const out = {};
-  for (const t of TABLAS) {
-    const [[r]] = await conn.query(`SELECT COUNT(*) AS n FROM ${t}`);
-    out[t] = Number(r.n);
-  }
+  for (const t of TABLAS) out[t] = Number((await query(`SELECT COUNT(*) AS n FROM ${t}`))[0].n);
   return out;
 }
 
 (async () => {
-  const base = process.env.DB_NAME || 'controltecchh';
-  let conn;
   try {
-    conn = await mysql.createConnection({
-      host: process.env.DB_HOST || 'localhost', port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USER || 'root', password: process.env.DB_PASSWORD || '', database: base,
-      multipleStatements: true, charset: 'utf8mb4',
-    });
-  } catch (err) {
-    console.error(`ERR ${explicarErrorMySQL(err)}`);
-    process.exit(1);
-  }
-  try {
-    const antes = await contar(conn);
-    const sql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'datos_iniciales.sql'), 'utf8');
-    await conn.beginTransaction();
-    await conn.query(sql);
-    await conn.commit();
-    const despues = await contar(conn);
-    console.log(`Base: ${base}\n`);
+    const antes = await contar();
+    const r = await asegurarDatosIniciales({ reemplazarDemo: true });
+    const asignaciones = await asignarUsuariosDemo();
+    // El Laboratorio 4-4 no forma parte de los datos iniciales: se desactiva sin borrar nada.
+    const inactivo = await query("UPDATE laboratorios SET estado = 'Inactivo' WHERE nombre = 'Laboratorio 4-4' AND estado = 'Activo'");
+    const despues = await contar();
+    console.log(`Base: ${process.env.DB_NAME || 'controltecchh'}\n`);
     console.log('Tabla                 Antes  Después  Agregados');
     for (const t of TABLAS) {
       console.log(`${t.padEnd(20)} ${String(antes[t]).padStart(6)} ${String(despues[t]).padStart(8)} ${String(despues[t] - antes[t]).padStart(10)}`);
     }
+    console.log('');
+    if (r.equipos_actualizados) console.log(`OK  ${r.equipos_actualizados} computadora(s) de demostración actualizadas con el equipamiento propio de su laboratorio (mismo id: sus mantenimientos se conservan).`);
+    if (asignaciones) console.log(`OK  ${asignaciones} asignación(es) de usuarios de demostración a laboratorios.`);
+    if (inactivo.affectedRows) console.log('OK  Laboratorio 4-4 marcado como Inactivo (no se borró nada).');
+    for (const o of r.omitidos) console.log(`AVISO Computadoras no cargadas en ${o}.`);
     if (despues.usuarios !== antes.usuarios) throw new Error('Se modificó la tabla de usuarios (no debería ocurrir).');
-    console.log('\nOK  Carga completa. Los usuarios (incluido el administrador) no se modificaron.');
+    console.log('OK  Carga completa. Los usuarios (incluido el administrador) no se modificaron.');
   } catch (err) {
-    await conn.rollback().catch(() => { });
-    console.error(`ERR No se pudo completar la carga; no se guardó ningún cambio. ${err.code ? explicarErrorMySQL(err) : err.message}`);
+    console.error(`ERR No se pudo completar la carga. ${err.code ? explicarErrorMySQL(err) : err.message}`);
     process.exitCode = 1;
   } finally {
-    await conn.end();
+    await pool.end();
   }
 })();

@@ -21,23 +21,16 @@ mysql -u root -p < "CONTROL TECH INSERTS.sql"
 
 Si ya existe (con el administrador cargado) **no** vuelvas a ejecutar estos scripts: duplicarían registros.
 
-### Cargar laboratorios y equipos en una base existente
+### Datos iniciales (laboratorios y computadoras)
 
-Si el sistema no muestra laboratorios ni equipos, cargalos de forma segura (con el backend configurado en `backend/.env`):
+No hace falta cargarlos a mano: **al iniciar, el backend crea lo que falte** (ver *Laboratorios iniciales y sus computadoras*). Para cargar además las asignaciones de los usuarios de demostración y desactivar el Laboratorio 4-4:
 
 ```bash
 cd backend
 npm run db:cargar
 ```
 
-Carga los 6 laboratorios, las 72 computadoras, el software, las licencias y las instalaciones de `CONTROL TECH INSERTS.sql` (archivo `backend/sql/datos_iniciales.sql`). **Solo agrega lo que falta** y se puede repetir sin duplicar nada. No crea ni modifica usuarios (el administrador queda intacto), no reinstala software quitado a mano y no toca equipos ni laboratorios creados después. El archivo SQL también puede ejecutarse desde phpMyAdmin con la base seleccionada.
-
-`npm run db:check` muestra cuántos laboratorios y equipos tiene la base. Solo creá un usuario para la aplicación (opcional, recomendado):
-
-```sql
-CREATE USER 'controltech'@'localhost' IDENTIFIED BY 'una-clave';
-GRANT SELECT, INSERT, UPDATE, DELETE ON controltecchh.* TO 'controltech'@'localhost';
-```
+Solo agrega lo que falta y se puede repetir sin duplicar nada. No crea ni modifica usuarios (el administrador queda intacto). `npm run db:check` muestra cuántos laboratorios y equipos tiene la base.
 
 ## 2. Backend (Express)
 
@@ -114,11 +107,24 @@ Son pruebas de integración contra la API y MySQL reales. **Agregan** registros 
 - La cuenta del administrador está protegida: no se puede cambiar su rol, ni duplicar su email, ni crear otro administrador. No existe un endpoint para eliminar usuarios.
 - Las cuentas cargadas por los scripts SQL guardan la contraseña en texto plano; el login las acepta sin modificarlas. Las cuentas nuevas se guardan con hash bcrypt.
 
-## Laboratorios iniciales
+## Laboratorios iniciales y sus computadoras
 
-Al iniciar, el backend verifica que existan los **5 laboratorios iniciales** (4-1, 4-2, 4-3, 5-1 y 5-2, con los datos de `CONTROL TECH INSERTS.sql`) y crea los que falten. Se identifican por nombre: no se duplican ni se modifican los existentes, y el administrador queda asignado a ellos. El administrador puede crear más laboratorios desde el sistema.
+Al iniciar, el backend verifica los datos de `backend/src/config/datosIniciales.js` y crea lo que falte:
 
-`npm run db:cargar` carga además sus 60 computadoras y el software. El Laboratorio 4-4 ya no forma parte de los datos iniciales: si existe en la base, `db:cargar` lo marca **Inactivo** (no se borran sus equipos ni su historial; el administrador puede reactivarlo, y se muestra con "Mostrar laboratorios inactivos").
+| Laboratorio | Computadoras | Equipamiento | Software |
+|---|---|---|---|
+| 4-1 (aula general) | 12 · PC-4A-01 a 12 | Dell OptiPlex 3090 Micro / 3080 | Chrome, Office 365 |
+| 4-2 (informática básica) | 14 · PC-4B-01 a 14 | HP ProDesk 400 G7 / EliteDesk 800 G6 | Chrome, Office 365, VS Code |
+| 4-3 (aula general) | 12 · PC-4C-01 a 12 | Lenovo ThinkCentre M720q / M70q Gen 2 | Chrome, Office 365 |
+| 5-1 (programación web) | 15 · PC-5A-01 a 15 | Dell OptiPlex 7090 Tower (i7) | Chrome, VS Code, GitHub Desktop, XAMPP |
+| 5-2 (desarrollo avanzado) | 13 · PC-5B-01 a 13 | Lenovo ThinkCentre M90t / ThinkStation P350 | Chrome, Office 365, VS Code, Visual Studio 2022, GitHub Desktop |
+
+Cada laboratorio tiene su propio equipamiento, cantidad, estados y software (en `CONTROL TECH INSERTS.sql` las 12 computadoras eran idénticas en todos los laboratorios). Reglas:
+
+- Laboratorios y software se identifican por nombre; computadoras por identificador y número de serie. **Nada se duplica ni se borra.**
+- Las computadoras de un laboratorio solo se cargan si ese laboratorio no tiene equipos cargados a mano.
+- Las computadoras de demostración anteriores (las idénticas del script) se actualizan con los datos de su laboratorio **solo si nadie las modificó**, conservando su id: sus mantenimientos, alertas e historial siguen vinculados. Si se les cambió el software, se conserva ese software.
+- El administrador puede crear más laboratorios. El Laboratorio 4-4 ya no forma parte de los datos iniciales: `npm run db:cargar` lo marca **Inactivo** sin borrar sus equipos ni su historial (se ve con "Mostrar laboratorios inactivos").
 
 ## Sección Laboratorios
 

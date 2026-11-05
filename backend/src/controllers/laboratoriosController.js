@@ -5,7 +5,7 @@ const { ROLES, etiquetaRol } = require('../utils/roles');
 const { laboratoriosPermitidos, filtroLaboratorios, verificarAccesoLaboratorio } = require('../utils/acceso');
 const { registrarAccion } = require('../utils/historial');
 const { texto, enteroPositivo } = require('../utils/validacion');
-const { asegurarLaboratoriosUnaVez } = require('../config/laboratoriosIniciales');
+const { asegurarDatosUnaVez } = require('../config/datosIniciales');
 
 const ESTADOS_LAB = ['Activo', 'Inactivo'];
 const LIMITES = { nombre: 100, edificio: 100, piso: 50, ubicacion: 150, codigo_acceso: 100 };
@@ -31,7 +31,7 @@ const SELECT_LAB = `
     FROM laboratorios l LEFT JOIN equipos e ON e.id_laboratorio = l.id_laboratorio`;
 
 async function listar(req, res) {
-  await asegurarLaboratoriosUnaVez();
+  await asegurarDatosUnaVez();
   const labs = await laboratoriosPermitidos(req.user);
   const where = [];
   const params = [];

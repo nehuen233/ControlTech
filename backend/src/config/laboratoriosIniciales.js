@@ -35,14 +35,4 @@ async function asegurarLaboratoriosIniciales() {
   return creados;
 }
 
-// Verifica una sola vez por proceso (al iniciar, o en la primera consulta si MySQL
-// no estaba disponible al arrancar el servidor).
-let verificado = false;
-async function asegurarLaboratoriosUnaVez() {
-  if (verificado) return 0;
-  const creados = await asegurarLaboratoriosIniciales();
-  verificado = true;
-  return creados;
-}
-
-module.exports = { LABORATORIOS_INICIALES, asegurarLaboratoriosIniciales, asegurarLaboratoriosUnaVez };
+module.exports = { LABORATORIOS_INICIALES, asegurarLaboratoriosIniciales };

@@ -51,7 +51,11 @@ before(async () => {
   admin = await login('admin@controltech.com', 'Administrador1234');
 });
 
-after(async () => { await db?.end(); });
+after(async () => {
+  await db?.end();
+  // Pool del backend usado por las pruebas que llaman directo a los datos iniciales.
+  await require('../src/config/db').pool.end();
+});
 
 // ---------------- Integracion ----------------
 test('health: Express responde y MySQL está conectado', async () => {
@@ -293,7 +297,8 @@ test('permisos por laboratorio: sin acceso a laboratorios ajenos', async () => {
   const cp = await call('/mantenimientos/equipos-con-problemas', { token: s.token });
   assert.ok(cp.data.every((e) => permitidos.includes(e.id_laboratorio)));
   const eqs = await call('/equipos', { token: s.token });
-  assert.ok(eqs.data.length === 24 && eqs.data.every((e) => permitidos.includes(e.id_laboratorio)));
+  const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM equipos WHERE id_laboratorio IN (?)', [permitidos]);
+  assert.ok(eqs.data.length === Number(total) && eqs.data.every((e) => permitidos.includes(e.id_laboratorio)));
   const ajeno = await equipo('PC-4A-11'); // Laboratorio 4-1
   assert.equal((await call(`/mantenimientos/historial/${ajeno.id_equipo}`, { token: s.token })).status, 403);
   assert.equal((await call('/mantenimientos', { method: 'POST', token: s.token, body: { id_equipo: ajeno.id_equipo, fecha_mantenimiento: '2026-11-04', tipo: 'Preventivo', detalle: 'no permitido' } })).status, 403);
@@ -502,7 +507,30 @@ test('los 5 laboratorios iniciales figuran en el sistema y no se duplican', asyn
   assert.ok(rows.every((r) => Number(r.n) === 1), 'cada laboratorio existe una sola vez');
   const lista = await call('/laboratorios', { token: admin.token });
   for (const n of nombres) assert.ok(lista.data.some((l) => l.nombre === n && l.estado === 'Activo'), `${n} visible y activo`);
-  await require('../src/config/db').pool.end();
+});
+
+test('computadoras iniciales: cargadas en cada laboratorio y distintas entre laboratorios', async () => {
+  const { PERFILES, EQUIPOS_INICIALES, asegurarDatosIniciales } = require('../src/config/datosIniciales');
+  const ids = EQUIPOS_INICIALES.map((e) => e.identificador);
+  assert.equal(new Set(ids).size, ids.length, 'identificadores únicos');
+  assert.equal(new Set(EQUIPOS_INICIALES.map((e) => e.nro_serie)).size, ids.length, 'números de serie únicos');
+  const firmas = PERFILES.map((p) => JSON.stringify(EQUIPOS_INICIALES.filter((e) => e.laboratorio === p.laboratorio)
+    .map(({ marca, modelo, procesador, ram, almacenamiento, estado }) => [marca, modelo, procesador, ram, almacenamiento, estado])));
+  assert.equal(new Set(firmas).size, PERFILES.length, 'ningún laboratorio repite el equipamiento de otro');
+  assert.equal(new Set(PERFILES.map((p) => JSON.stringify(p.software))).size >= 4, true, 'software distinto según el uso del laboratorio');
+
+  for (const p of PERFILES) {
+    const [rows] = await db.query(
+      'SELECT e.identificador FROM equipos e JOIN laboratorios l ON l.id_laboratorio = e.id_laboratorio WHERE l.nombre = ? AND e.identificador LIKE ?',
+      [p.laboratorio, `PC-${p.prefijo}-%`],
+    );
+    assert.ok(rows.length >= p.cantidad, `${p.laboratorio}: ${rows.length} de ${p.cantidad} computadoras`);
+  }
+  const r = await asegurarDatosIniciales();
+  assert.equal(r.equipos_agregados, 0, 'una segunda aplicación no agrega computadoras');
+  assert.equal(r.laboratorios, 0);
+  const lab51 = await call(`/laboratorios/${await idLab('Laboratorio 5-1')}/software`, { token: admin.token });
+  assert.ok(lab51.data.some((s) => s.nombre_software === 'XAMPP'), 'el 5-1 (programación) tiene XAMPP');
 });
 
 // ---------------- Software por laboratorio ----------------
