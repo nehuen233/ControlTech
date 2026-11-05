@@ -3,6 +3,7 @@ import { api } from '../api.js'
 import { useAuth } from '../AuthContext.jsx'
 import { Alerta, Badge, Cargando, Modal, etiqueta, fecha, hoy, moneda } from '../components/ui.jsx'
 import { FichaEquipo, FormEquipo } from './Equipos.jsx'
+import { EliminarLaboratorio } from './Laboratorios.jsx'
 
 // Pagina de un laboratorio con pestañas: Computadoras | Software | Mantenimiento.
 const Icono = {
@@ -20,7 +21,8 @@ const textoVersion = (v) => (/^versi[oó]n\b/i.test(v) ? v : `Versión ${v}`)
 const ocultarClave = (c) => (c ? c.slice(0, -4).replace(/[A-Za-z0-9]/g, 'X') + c.slice(-4) : '')
 
 export default function LaboratorioDetalle({ id }) {
-  const { puedeGestionar } = useAuth()
+  const { puedeGestionar, esAdmin } = useAuth()
+  const [eliminando, setEliminando] = useState(false)
   const [lab, setLab] = useState(null)
   const [error, setError] = useState('')
   const [pestana, setPestana] = useState('software')
@@ -48,6 +50,7 @@ export default function LaboratorioDetalle({ id }) {
         <div className="lab-titulo">
           <h2>{lab.nombre}</h2>
           <Badge value={lab.estado} />
+          {esAdmin && <button type="button" className="btn-link peligro empuja" onClick={() => setEliminando(true)}>Eliminar laboratorio</button>}
         </div>
         <p className="texto-suave">{[lab.edificio, lab.piso, lab.ubicacion].filter(Boolean).join(' · ')}</p>
       </div>
@@ -62,6 +65,10 @@ export default function LaboratorioDetalle({ id }) {
       {pestana === 'computadoras' && <Computadoras lab={lab} puedeGestionar={puedeGestionar} onCambio={refrescar} />}
       {pestana === 'software' && <SoftwareLab lab={lab} puedeGestionar={puedeGestionar} onCambio={refrescar} />}
       {pestana === 'mantenimiento' && <MantenimientoLab lab={lab} />}
+      {eliminando && (
+        <EliminarLaboratorio lab={lab} onClose={() => setEliminando(false)}
+          onEliminado={() => { window.location.hash = '#/laboratorios' }} />
+      )}
     </>
   )
 }

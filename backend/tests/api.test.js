@@ -633,6 +633,62 @@ test('quitar software de un laboratorio y permisos por laboratorio', async () =>
   assert.ok(acc.some((a) => a.accion === 'Eliminar') && acc.some((a) => a.accion === 'Crear'));
 });
 
+// ---------------- Eliminacion de laboratorios ----------------
+test('eliminar un laboratorio vacío (solo el administrador)', async () => {
+  const c = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Borrar ${SUFIJO}`, capacidad_equipos: 5 } });
+  assert.equal(c.status, 201);
+  const id = c.data.id_laboratorio;
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  assert.equal((await call(`/laboratorios/${id}`, { method: 'DELETE', token: maria.token })).status, 403);
+  const r = await call(`/laboratorios/${id}`, { method: 'DELETE', token: admin.token });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.equipos_movidos, 0);
+  assert.equal((await call(`/laboratorios/${id}`, { token: admin.token })).status, 404);
+  const [asig] = await db.query('SELECT 1 FROM usuario_laboratorio WHERE id_laboratorio = ?', [id]);
+  assert.equal(asig.length, 0, 'se quitan las asignaciones de usuarios');
+  const [[h]] = await db.query("SELECT detalle FROM historial_acciones WHERE entidad = 'Laboratorio' AND accion = 'Eliminar' AND id_registro = ?", [id]);
+  assert.equal(h.detalle, `Baja del laboratorio "Lab Borrar ${SUFIJO}".`);
+  assert.equal((await call(`/laboratorios/${id}`, { method: 'DELETE', token: admin.token })).status, 404);
+});
+
+test('eliminar un laboratorio con computadoras: se trasladan con su historial', async () => {
+  const [eqs] = await db.query('SELECT id_equipo, identificador, id_responsable FROM equipos WHERE id_laboratorio = ? ORDER BY id_equipo', [labTest]);
+  assert.equal(eqs.length, 3);
+  const m = await call('/mantenimientos', { method: 'POST', token: admin.token, body: { id_equipo: eqs[0].id_equipo, fecha_mantenimiento: '2026-11-05', tipo: 'Preventivo', detalle: `Antes de la baja ${SUFIJO}` } });
+  assert.equal(m.status, 201);
+
+  const sinDestino = await call(`/laboratorios/${labTest}`, { method: 'DELETE', token: admin.token });
+  assert.equal(sinDestino.status, 409);
+  assert.match(sinDestino.data.error, /tiene 3 computadora\(s\)/);
+  assert.equal((await call(`/laboratorios/${labTest}`, { method: 'DELETE', token: admin.token, body: { destino: labTest } })).status, 400);
+  const [[inactivo]] = await db.query('SELECT id_laboratorio FROM laboratorios WHERE nombre = ?', [`${LAB_TEST} inactivo`]);
+  const rInactivo = await call(`/laboratorios/${labTest}`, { method: 'DELETE', token: admin.token, body: { destino: inactivo.id_laboratorio } });
+  assert.equal(rInactivo.status, 400);
+  assert.match(rInactivo.data.error, /inactivo/);
+  const chico = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Chico ${SUFIJO}`, capacidad_equipos: 2 } });
+  const rLleno = await call(`/laboratorios/${labTest}`, { method: 'DELETE', token: admin.token, body: { destino: chico.data.id_laboratorio } });
+  assert.equal(rLleno.status, 409);
+  assert.match(rLleno.data.error, /solo tiene lugar para 2/);
+  const [[sigue]] = await db.query('SELECT COUNT(*) AS n FROM laboratorios WHERE id_laboratorio = ?', [labTest]);
+  assert.equal(Number(sigue.n), 1, 'los intentos rechazados no eliminan nada');
+
+  const destino = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Destino ${SUFIJO}`, capacidad_equipos: 10 } });
+  const r = await call(`/laboratorios/${labTest}`, { method: 'DELETE', token: admin.token, body: { destino: destino.data.id_laboratorio } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.equipos_movidos, 3);
+  const [movidos] = await db.query('SELECT id_equipo, id_laboratorio, id_responsable FROM equipos WHERE id_equipo IN (?) ORDER BY id_equipo', [eqs.map((e) => e.id_equipo)]);
+  assert.ok(movidos.every((e) => e.id_laboratorio === destino.data.id_laboratorio), 'las computadoras están en el laboratorio de destino');
+  for (const e of movidos) {
+    const antes = eqs.find((x) => x.id_equipo === e.id_equipo);
+    // El administrador tiene acceso al destino (queda responsable); Eva no (queda sin responsable).
+    assert.equal(e.id_responsable, antes.id_responsable === adminAntes.id_usuario ? adminAntes.id_usuario : null);
+  }
+  const [[mant]] = await db.query('SELECT id_equipo FROM mantenimientos WHERE id_mantenimiento = ?', [m.data.id_mantenimiento]);
+  assert.equal(mant.id_equipo, eqs[0].id_equipo, 'el mantenimiento sigue vinculado a la computadora');
+  const lista = await call('/mantenimientos', { token: admin.token, body: undefined });
+  assert.ok(lista.data.some((x) => x.id_mantenimiento === m.data.id_mantenimiento && x.laboratorio === `Lab Destino ${SUFIJO}`));
+});
+
 // ---------------- Conservacion de datos ----------------
 test('se conservan los mantenimientos anteriores y la cuenta del administrador', async () => {
   const [despues] = await db.query('SELECT * FROM mantenimientos WHERE id_mantenimiento IN (?) ORDER BY id_mantenimiento', [mantenimientosAntes.map((m) => m.id_mantenimiento)]);

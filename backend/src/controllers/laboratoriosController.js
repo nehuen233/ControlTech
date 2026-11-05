@@ -185,4 +185,60 @@ async function actualizar(req, res) {
   res.json(publico(await obtener(id), req.user));
 }
 
-module.exports = { listar, detalle, responsables, crear, actualizar };
+// Marca que deja la baja en historial_acciones: los datos iniciales la consultan para no
+// volver a crear un laboratorio que el administrador elimino.
+const marcaBaja = (nombre) => `Baja del laboratorio "${nombre}".`;
+
+// Elimina un laboratorio. Sus computadoras NO se borran (conservan mantenimientos, alertas
+// e historial): si tiene, se mueven al laboratorio "destino" que elija el administrador.
+async function eliminar(req, res) {
+  const id = enteroPositivo(req.params.id, 'El laboratorio');
+  const lab = await obtener(id);
+  const total = Number(lab.total_equipos || 0);
+  const b = req.body || {};
+  let destino = null;
+
+  if (total > 0) {
+    if (b.destino === undefined || b.destino === null || b.destino === '') {
+      throw new HttpError(409, `El ${lab.nombre} tiene ${total} computadora(s): elegí a qué laboratorio moverlas antes de eliminarlo.`, { equipos: total });
+    }
+    const idDestino = enteroPositivo(b.destino, 'El laboratorio de destino');
+    if (idDestino === id) throw new HttpError(400, 'El laboratorio de destino debe ser otro.');
+    destino = await obtener(idDestino);
+    if (destino.estado !== 'Activo') throw new HttpError(400, `El ${destino.nombre} está inactivo: elegí un laboratorio activo.`);
+    const libres = destino.capacidad_equipos == null ? Infinity : destino.capacidad_equipos - Number(destino.total_equipos || 0);
+    if (total > libres) {
+      throw new HttpError(409, `El ${destino.nombre} solo tiene lugar para ${Math.max(libres, 0)} computadora(s) más y hay que mover ${total}. Elegí otro laboratorio o aumentá su capacidad.`);
+    }
+  }
+
+  const movidos = await withTransaction(async (conn) => {
+    let n = 0;
+    if (destino) {
+      const [equipos] = await conn.query('SELECT id_equipo, identificador, id_responsable FROM equipos WHERE id_laboratorio = ?', [id]);
+      for (const e of equipos) {
+        // El responsable se conserva solo si tiene acceso al laboratorio de destino.
+        const [[asig]] = e.id_responsable
+          ? await conn.query('SELECT 1 AS ok FROM usuario_laboratorio WHERE id_usuario = ? AND id_laboratorio = ?', [e.id_responsable, destino.id_laboratorio])
+          : [[null]];
+        await conn.query('UPDATE equipos SET id_laboratorio = ?, id_responsable = ? WHERE id_equipo = ?',
+          [destino.id_laboratorio, asig ? e.id_responsable : null, e.id_equipo]);
+        await registrarAccion(conn, {
+          idUsuario: req.user.id, accion: 'Modificar', entidad: 'Equipo', idRegistro: e.id_equipo,
+          detalle: `Trasladado del ${lab.nombre} al ${destino.nombre} por la baja del laboratorio.`,
+        });
+        n += 1;
+      }
+    }
+    await conn.query('DELETE FROM usuario_laboratorio WHERE id_laboratorio = ?', [id]);
+    await conn.query('DELETE FROM laboratorios WHERE id_laboratorio = ?', [id]);
+    await registrarAccion(conn, {
+      idUsuario: req.user.id, accion: 'Eliminar', entidad: 'Laboratorio', idRegistro: id,
+      detalle: `${marcaBaja(lab.nombre)}${n ? ` ${n} computadora(s) trasladadas al ${destino.nombre}.` : ''}`,
+    });
+    return n;
+  });
+  res.json({ id_laboratorio: id, nombre: lab.nombre, equipos_movidos: movidos, destino: destino?.nombre || null });
+}
+
+module.exports = { listar, detalle, responsables, crear, actualizar, eliminar, marcaBaja };

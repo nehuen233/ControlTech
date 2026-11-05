@@ -11,7 +11,8 @@ const LABORATORIOS_INICIALES = Object.freeze([
 ].map((l) => Object.freeze({ ...l, edificio: 'Edificio principal del colegio', capacidad_equipos: 15, estado: 'Activo' })));
 
 // Crea los laboratorios iniciales que falten (se identifican por nombre: no se duplican
-// ni se modifican los existentes) y da acceso a ellos al administrador.
+// ni se modifican los existentes) y da acceso a ellos al administrador. No vuelve a crear
+// un laboratorio que el administrador elimino (la baja queda en historial_acciones).
 // Devuelve la cantidad de laboratorios creados.
 async function asegurarLaboratoriosIniciales() {
   let creados = 0;
@@ -19,8 +20,10 @@ async function asegurarLaboratoriosIniciales() {
     const r = await query(
       `INSERT INTO laboratorios (nombre, descripcion, edificio, piso, ubicacion, capacidad_equipos, estado)
        SELECT ?, ?, ?, ?, ?, ?, ? FROM DUAL
-        WHERE NOT EXISTS (SELECT 1 FROM laboratorios WHERE LOWER(TRIM(nombre)) = LOWER(?))`,
-      [l.nombre, l.descripcion, l.edificio, l.piso, l.ubicacion, l.capacidad_equipos, l.estado, l.nombre],
+        WHERE NOT EXISTS (SELECT 1 FROM laboratorios WHERE LOWER(TRIM(nombre)) = LOWER(?))
+          AND NOT EXISTS (SELECT 1 FROM historial_acciones
+                           WHERE entidad = 'Laboratorio' AND accion = 'Eliminar' AND LEFT(detalle, CHAR_LENGTH(?)) = ?)`,
+      [l.nombre, l.descripcion, l.edificio, l.piso, l.ubicacion, l.capacidad_equipos, l.estado, l.nombre, `Baja del laboratorio "${l.nombre}".`, `Baja del laboratorio "${l.nombre}".`],
     );
     creados += r.affectedRows;
   }

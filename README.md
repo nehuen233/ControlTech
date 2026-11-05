@@ -124,19 +124,25 @@ Cada laboratorio tiene su propio equipamiento, cantidad, estados y software (en 
 - Laboratorios y software se identifican por nombre; computadoras por identificador y número de serie. **Nada se duplica ni se borra.**
 - Las computadoras de un laboratorio solo se cargan si ese laboratorio no tiene equipos cargados a mano.
 - Las computadoras de demostración anteriores (las idénticas del script) se actualizan con los datos de su laboratorio **solo si nadie las modificó**, conservando su id: sus mantenimientos, alertas e historial siguen vinculados. Si se les cambió el software, se conserva ese software.
-- El administrador puede crear más laboratorios. El Laboratorio 4-4 ya no forma parte de los datos iniciales: `npm run db:cargar` lo marca **Inactivo** sin borrar sus equipos ni su historial (se ve con "Mostrar laboratorios inactivos").
+- El administrador puede crear más laboratorios o eliminarlos (un laboratorio inicial eliminado no se vuelve a crear). El Laboratorio 4-4 ya no forma parte de los datos iniciales: `npm run db:cargar` lo marca **Inactivo** sin borrar sus equipos ni su historial (se ve con "Mostrar laboratorios inactivos").
 
 ## Sección Laboratorios
 
 - Listado de los laboratorios (el administrador ve todos; el resto, los asignados) con ubicación, ocupación (equipos / capacidad) y equipos con problemas.
 - Detalle de cada laboratorio: equipos por estado, usuarios asignados y mantenimientos abiertos.
+- **Eliminar laboratorio** (solo el administrador, desde la tarjeta o la página del laboratorio):
+  - Si tiene computadoras, **no se borran**: se trasladan al laboratorio activo que se elija, con sus mantenimientos, alertas, software e historial. Se controla que el destino tenga capacidad; cada traslado queda en el historial del equipo.
+  - Las computadoras conservan su responsable solo si tiene acceso al laboratorio de destino.
+  - Se quitan las asignaciones de usuarios a ese laboratorio.
+  - La baja queda registrada en el historial y un laboratorio inicial eliminado **no se vuelve a crear** al reiniciar el sistema.
+  - Como alternativa sin borrar, el laboratorio puede marcarse *Inactivo* desde Editar.
 - **Página de cada laboratorio** (botón *Abrir*) con pestañas **Computadoras | Software | Mantenimiento**:
   - **Software** (*Gestión de Software*): programas instalados en las computadoras del laboratorio con proveedor, licencia (tipo, vencimiento y clave enmascarada), cantidad de equipos y acciones.
   - **Agregar Software**: elegir uno del catálogo o crear uno nuevo con su licencia, e instalarlo en todas las computadoras o en las que se elijan.
   - **Editar**: cambiar en qué computadoras está instalado; los datos y la licencia (comunes a todos los laboratorios) solo los modifica el administrador.
   - **Eliminar**: lo desinstala de las computadoras de ese laboratorio; el software sigue en el catálogo y en los demás laboratorios.
   - Lo gestionan el administrador y los roles de gestión en sus laboratorios; los docentes lo consultan sin ver las claves.
-- **Alta y edición solo para el administrador**, con validación de nombre único y de capacidad (no puede quedar por debajo de los equipos registrados). El código de acceso solo lo ve el administrador. Los laboratorios no se eliminan: se marcan como *Inactivo*.
+- **Alta y edición solo para el administrador**, con validación de nombre único y de capacidad (no puede quedar por debajo de los equipos registrados). El código de acceso solo lo ve el administrador.
 
 ## Información de equipos
 
@@ -174,7 +180,7 @@ Correspondencia con las tablas existentes:
 | GET / POST | `/api/usuarios` | administrador |
 | PATCH | `/api/usuarios/:id/rol` | administrador |
 | GET | `/api/laboratorios`, `/api/laboratorios/:id` | autenticado (filtrado por laboratorio) |
-| POST / PUT | `/api/laboratorios`, `/api/laboratorios/:id` | administrador |
+| POST / PUT / DELETE | `/api/laboratorios`, `/api/laboratorios/:id` | administrador |
 | GET | `/api/laboratorios/:id/responsables` | gestión |
 | GET | `/api/laboratorios/:id/software` | autenticado (filtrado por laboratorio) |
 | POST / PUT / DELETE | `/api/laboratorios/:id/software`, `/api/laboratorios/:id/software/:idSoftware` | gestión, en sus laboratorios |

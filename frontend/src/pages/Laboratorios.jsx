@@ -70,6 +70,7 @@ function ListaLaboratorios() {
                   <a className="btn btn-primario" href={`#/laboratorios/${l.id_laboratorio}`}>Abrir</a>
                   <button type="button" className="btn btn-secundario" onClick={() => setModal({ tipo: 'detalle', id: l.id_laboratorio })}>Detalle</button>
                   {esAdmin && <button type="button" className="btn-link" onClick={() => setModal({ tipo: 'form', lab: l })}>Editar</button>}
+                  {esAdmin && <button type="button" className="btn-link peligro" onClick={() => setModal({ tipo: 'eliminar', lab: l })}>Eliminar</button>}
                 </footer>
               </article>
             )
@@ -82,6 +83,7 @@ function ListaLaboratorios() {
         </button>
       )}
       {modal?.tipo === 'detalle' && <DetalleLaboratorio id={modal.id} onClose={() => setModal(null)} />}
+      {modal?.tipo === 'eliminar' && <EliminarLaboratorio lab={modal.lab} onClose={() => setModal(null)} onEliminado={guardado} />}
       {modal?.tipo === 'form' && <FormLaboratorio lab={modal.lab} onClose={() => setModal(null)} onGuardado={guardado} />}
     </section>
   )
@@ -182,6 +184,83 @@ function FormLaboratorio({ lab, onClose, onGuardado }) {
           <button className="btn btn-primario" disabled={enviando}>{enviando ? 'Guardando…' : 'Guardar'}</button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+// Confirmacion de baja. Si el laboratorio tiene computadoras hay que elegir a donde moverlas:
+// no se borran, para conservar sus mantenimientos e historial.
+export function EliminarLaboratorio({ lab, onClose, onEliminado }) {
+  const [detalle, setDetalle] = useState(null)
+  const [destinos, setDestinos] = useState([])
+  const [destino, setDestino] = useState('')
+  const [confirmo, setConfirmo] = useState(false)
+  const [error, setError] = useState('')
+  const [enviando, setEnviando] = useState(false)
+
+  useEffect(() => {
+    Promise.all([api(`/laboratorios/${lab.id_laboratorio}`), api('/laboratorios')])
+      .then(([d, todos]) => {
+        setDetalle(d)
+        setDestinos(todos.filter((l) => l.id_laboratorio !== lab.id_laboratorio && l.estado === 'Activo'))
+      })
+      .catch((e) => setError(e.message))
+  }, [lab.id_laboratorio])
+
+  const libres = (l) => (l.capacidad_equipos == null ? Infinity : l.capacidad_equipos - l.total_equipos)
+  const equipos = detalle?.total_equipos || 0
+  const usuarios = detalle ? detalle.usuarios.filter((u) => u.nombre_rol !== 'ADMINISTRADOR') : []
+
+  const eliminar = async () => {
+    setError('')
+    if (equipos && !destino) return setError('Elegí a qué laboratorio mover las computadoras.')
+    setEnviando(true)
+    try {
+      const r = await api(`/laboratorios/${lab.id_laboratorio}`, { method: 'DELETE', body: equipos ? { destino: Number(destino) } : {} })
+      onEliminado(`${r.nombre} eliminado.${r.equipos_movidos ? ` ${r.equipos_movidos} computadora(s) trasladadas al ${r.destino}.` : ''}`)
+    } catch (err) {
+      setError(err.message)
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <Modal titulo={`Eliminar ${lab.nombre}`} onClose={onClose} ancho="520px">
+      <div className="form">
+        <Alerta>{error}</Alerta>
+        {!detalle && !error ? <Cargando /> : detalle && (
+          <>
+            <p>Se va a eliminar el <strong>{lab.nombre}</strong>. Esta acción no se puede deshacer.</p>
+            <ul className="lista-simple chico">
+              <li>{equipos ? <><strong>{equipos} computadora(s)</strong> se trasladan al laboratorio que elijas, con sus mantenimientos e historial.</> : 'No tiene computadoras.'}</li>
+              <li>{usuarios.length ? <><strong>{usuarios.length} usuario(s)</strong> pierden el acceso a este laboratorio: {usuarios.map((u) => `${u.nombre} ${u.apellido}`).join(', ')}.</> : 'No tiene usuarios asignados (además del administrador).'}</li>
+              <li>Si es uno de los laboratorios iniciales, no se vuelve a crear al reiniciar el sistema.</li>
+            </ul>
+            {equipos > 0 && (
+              <label>Mover las computadoras a
+                <select value={destino} onChange={(e) => setDestino(e.target.value)}>
+                  <option value="">Elegí un laboratorio</option>
+                  {destinos.map((l) => (
+                    <option key={l.id_laboratorio} value={l.id_laboratorio} disabled={libres(l) < equipos}>
+                      {l.nombre} {l.capacidad_equipos != null ? `(${l.total_equipos}/${l.capacidad_equipos}${libres(l) < equipos ? ' · sin lugar' : ''})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {equipos > 0 && destinos.every((l) => libres(l) < equipos) && (
+              <p className="texto-suave chico">Ningún laboratorio activo tiene lugar para {equipos} computadoras. Aumentá la capacidad de alguno (Editar) antes de eliminar este.</p>
+            )}
+            <label className="check"><input type="checkbox" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} /> Entiendo que el laboratorio se elimina definitivamente</label>
+            <div className="form-acciones">
+              <button type="button" className="btn btn-secundario" onClick={onClose}>Cancelar</button>
+              <button type="button" className="btn btn-peligro" onClick={eliminar} disabled={!confirmo || enviando || (equipos > 0 && !destino)}>
+                {enviando ? 'Eliminando…' : 'Eliminar laboratorio'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </Modal>
   )
 }

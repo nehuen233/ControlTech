@@ -38,6 +38,7 @@ r.get('/laboratorios', autenticar, h(laboratorios.listar));
 r.post('/laboratorios', soloAdmin, h(laboratorios.crear));
 r.get('/laboratorios/:id', autenticar, h(laboratorios.detalle));
 r.put('/laboratorios/:id', soloAdmin, h(laboratorios.actualizar));
+r.delete('/laboratorios/:id', soloAdmin, h(laboratorios.eliminar));
 r.get('/laboratorios/:id/responsables', autenticar, permitirRoles(ROLES_GESTION_MANTENIMIENTO), h(laboratorios.responsables));
 
 // Software de cada laboratorio (instalado en sus equipos)
