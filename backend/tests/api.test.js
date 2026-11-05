@@ -63,7 +63,10 @@ test('health: Express responde y MySQL está conectado', async () => {
 test('rutas protegidas rechazan peticiones sin token o con token inválido', async () => {
   assert.equal((await call('/mantenimientos')).status, 401);
   assert.equal((await call('/usuarios', { token: 'x.y.z' })).status, 401);
-  assert.equal((await call('/no-existe')).status, 404);
+  const r404 = await call('/no-existe');
+  assert.equal(r404.status, 404);
+  assert.equal(r404.data.codigo, 'RUTA_NO_ENCONTRADA');
+  assert.match(r404.data.error, /GET \/api\/no-existe/);
 });
 
 // ---------------- Usuarios y roles ----------------

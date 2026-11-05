@@ -38,6 +38,11 @@ export async function api(path, { method = 'GET', body, params } = {}) {
   if ([502, 503, 504].includes(res.status) && !data?.error) {
     throw new ApiError(res.status, 'No se pudo conectar con el backend de ControlTech (puerto 4000). Verificá que esté corriendo con "npm start" en la carpeta backend.')
   }
+  // Ruta inexistente en el backend: casi siempre es un backend iniciado antes de
+  // actualizar el codigo (Node solo carga el codigo al arrancar).
+  if (res.status === 404 && (data?.codigo === 'RUTA_NO_ENCONTRADA' || /^Ruta no encontrada/.test(data?.error || ''))) {
+    throw new ApiError(404, 'El backend no reconoce esta función: probablemente está corriendo una versión anterior. Reinicialo (Ctrl+C y "npm start" en la carpeta backend) y recargá la página.')
+  }
   if (!res.ok) {
     if (res.status === 401 && path !== '/auth/login') onUnauthorized()
     throw new ApiError(res.status, data?.error || `Error ${res.status}`, data?.detalles)

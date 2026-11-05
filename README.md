@@ -86,6 +86,8 @@ Vite redirige `/api` al backend en `http://127.0.0.1:4000` (configurable con `VI
 
 > El backend y el frontend deben estar corriendo **a la vez**, cada uno en su terminal. Si el navegador muestra **error 502** o "No se pudo conectar con el backend", el backend está detenido o se cerró con un error: revisá su terminal y volvé a ejecutar `npm start` en `backend/`. Cada cambio en `backend/.env` requiere reiniciar el backend.
 
+> **Después de cada `git pull` reiniciá el backend** (Ctrl+C y `npm start`): Node solo carga el código al arrancar. Si el backend sigue con la versión anterior, las funciones nuevas responden *404 Ruta no encontrada* y la pantalla indica que hay que reiniciarlo. El frontend (`npm run dev`) se actualiza solo.
+
 ## 4. Pruebas
 
 Con el backend en ejecución:

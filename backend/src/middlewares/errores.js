@@ -1,7 +1,9 @@
 const { explicarErrorMySQL } = require('../config/diagnostico');
 
+// codigo permite al frontend distinguir una ruta inexistente (backend desactualizado o
+// URL mal escrita) de un registro que no existe.
 function noEncontrado(req, res) {
-  res.status(404).json({ error: 'Ruta no encontrada.' });
+  res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.originalUrl}`, codigo: 'RUTA_NO_ENCONTRADA' });
 }
 
 // eslint-disable-next-line no-unused-vars
