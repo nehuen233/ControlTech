@@ -5,6 +5,7 @@ const { ROLES, etiquetaRol } = require('../utils/roles');
 const { laboratoriosPermitidos, filtroLaboratorios, verificarAccesoLaboratorio } = require('../utils/acceso');
 const { registrarAccion } = require('../utils/historial');
 const { texto, enteroPositivo } = require('../utils/validacion');
+const { asegurarLaboratoriosUnaVez } = require('../config/laboratoriosIniciales');
 
 const ESTADOS_LAB = ['Activo', 'Inactivo'];
 const LIMITES = { nombre: 100, edificio: 100, piso: 50, ubicacion: 150, codigo_acceso: 100 };
@@ -30,6 +31,7 @@ const SELECT_LAB = `
     FROM laboratorios l LEFT JOIN equipos e ON e.id_laboratorio = l.id_laboratorio`;
 
 async function listar(req, res) {
+  await asegurarLaboratoriosUnaVez();
   const labs = await laboratoriosPermitidos(req.user);
   const where = [];
   const params = [];
@@ -70,8 +72,14 @@ async function detalle(req, res) {
        FROM mantenimientos m JOIN equipos e ON e.id_equipo = m.id_equipo WHERE e.id_laboratorio = ?`,
     [id],
   );
+  const [sw] = await query(
+    `SELECT COUNT(DISTINCT es.id_software) AS n FROM equipo_software es
+       JOIN equipos e ON e.id_equipo = es.id_equipo WHERE e.id_laboratorio = ?`,
+    [id],
+  );
   res.json({
     ...publico(lab, req.user),
+    total_software: Number(sw.n || 0),
     equipos_por_estado: porEstado.map((r) => ({ estado: r.estado, cantidad: Number(r.cantidad) })),
     usuarios: usuarios.map((u) => ({ ...u, rolEtiqueta: etiquetaRol(u.nombre_rol) })),
     mantenimientos: { abiertos: Number(mant.abiertos || 0), total: Number(mant.total || 0) },

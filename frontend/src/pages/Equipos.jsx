@@ -108,7 +108,7 @@ export default function Equipos() {
   )
 }
 
-function FichaEquipo({ id, puedeGestionar, recarga, onEditar, onClose }) {
+export function FichaEquipo({ id, puedeGestionar, recarga, onEditar, onClose }) {
   const [eq, setEq] = useState(null)
   const [error, setError] = useState('')
   useEffect(() => { api(`/equipos/${id}`).then(setEq).catch((e) => setError(e.message)) }, [id, recarga])
@@ -192,7 +192,7 @@ function FichaEquipo({ id, puedeGestionar, recarga, onEditar, onClose }) {
   )
 }
 
-function FormEquipo({ id, labs, laboratorioInicial, onClose, onGuardado }) {
+export function FormEquipo({ id, labs, laboratorioInicial, onClose, onGuardado }) {
   const editando = Boolean(id)
   const [f, setF] = useState(null)
   const [catalogo, setCatalogo] = useState([])

@@ -14,6 +14,7 @@ const app = require('./app');
 const { pool } = require('./config/db');
 const { explicarErrorMySQL } = require('./config/diagnostico');
 const { asegurarRolesAsignables } = require('./controllers/usuariosController');
+const { asegurarLaboratoriosUnaVez } = require('./config/laboratoriosIniciales');
 
 const PORT = Number(process.env.PORT || 4000);
 
@@ -25,6 +26,11 @@ pool.query('SELECT 1')
       return 0;
     });
     if (creados) console.log(`Se agregaron ${creados} rol(es) asignable(s) que faltaban en la tabla roles.`);
+    const labs = await asegurarLaboratoriosUnaVez().catch((err) => {
+      console.warn(`No se pudieron verificar los laboratorios iniciales: ${err.message}`);
+      return 0;
+    });
+    if (labs) console.log(`Se agregaron ${labs} laboratorio(s) inicial(es) que faltaban.`);
   })
   .catch((err) => console.error(`No se pudo conectar a MySQL. ${explicarErrorMySQL(err)}\nEjecutá "npm run db:check" para diagnosticar.`));
 

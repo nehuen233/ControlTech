@@ -6,6 +6,7 @@ const auth = require('../controllers/authController');
 const usuarios = require('../controllers/usuariosController');
 const laboratorios = require('../controllers/laboratoriosController');
 const equipos = require('../controllers/equiposController');
+const software = require('../controllers/softwareController');
 const mant = require('../controllers/mantenimientosController');
 const { pool } = require('../config/db');
 const { explicarErrorMySQL } = require('../config/diagnostico');
@@ -39,8 +40,15 @@ r.get('/laboratorios/:id', autenticar, h(laboratorios.detalle));
 r.put('/laboratorios/:id', soloAdmin, h(laboratorios.actualizar));
 r.get('/laboratorios/:id/responsables', autenticar, permitirRoles(ROLES_GESTION_MANTENIMIENTO), h(laboratorios.responsables));
 
+// Software de cada laboratorio (instalado en sus equipos)
+const gestionLab = [autenticar, permitirRoles(ROLES_GESTION_MANTENIMIENTO)];
+r.get('/laboratorios/:id/software', autenticar, h(software.listarDeLaboratorio));
+r.post('/laboratorios/:id/software', gestionLab, h(software.agregarALaboratorio));
+r.put('/laboratorios/:id/software/:idSoftware', gestionLab, h(software.actualizarEnLaboratorio));
+r.delete('/laboratorios/:id/software/:idSoftware', gestionLab, h(software.quitarDeLaboratorio));
+
 // Equipos (alta y edicion: administrador y roles de gestion, en sus laboratorios)
-r.get('/software', autenticar, h(equipos.catalogoSoftware));
+r.get('/software', autenticar, h(software.catalogo));
 r.get('/equipos', autenticar, h(equipos.listar));
 r.post('/equipos', autenticar, permitirRoles(ROLES_GESTION_MANTENIMIENTO), h(equipos.crear));
 r.get('/equipos/:id', autenticar, h(equipos.detalle));

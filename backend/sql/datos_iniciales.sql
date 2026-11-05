@@ -1,5 +1,6 @@
 -- ============================================================================
 -- ControlTech - Carga segura de laboratorios, equipos y software
+-- Laboratorios iniciales: 4-1, 4-2, 4-3, 5-1 y 5-2 (el 4-4 no forma parte).
 -- Generado a partir de "CONTROL TECH INSERTS.sql" (mismos datos).
 --
 -- Se puede ejecutar sobre una base que ya tiene datos y repetirse las veces que
@@ -28,9 +29,6 @@ INSERT INTO laboratorios (nombre, descripcion, edificio, piso, ubicacion, capaci
 SELECT 'Laboratorio 4-3', 'Laboratorio del cuarto piso para clases y actividades educativas con computadoras', 'Edificio principal del colegio', '4to piso', 'Sector 4-3', 15, 'Activo', NULL FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM laboratorios WHERE nombre = 'Laboratorio 4-3');
 INSERT INTO laboratorios (nombre, descripcion, edificio, piso, ubicacion, capacidad_equipos, estado, codigo_acceso)
-SELECT 'Laboratorio 4-4', 'Laboratorio del cuarto piso para clases y actividades educativas con computadoras', 'Edificio principal del colegio', '4to piso', 'Sector 4-4', 15, 'Activo', NULL FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM laboratorios WHERE nombre = 'Laboratorio 4-4');
-INSERT INTO laboratorios (nombre, descripcion, edificio, piso, ubicacion, capacidad_equipos, estado, codigo_acceso)
 SELECT 'Laboratorio 5-1', 'Laboratorio del quinto piso para clases y actividades educativas con computadoras', 'Edificio principal del colegio', '5to piso', 'Ala izquierda', 15, 'Activo', NULL FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM laboratorios WHERE nombre = 'Laboratorio 5-1');
 INSERT INTO laboratorios (nombre, descripcion, edificio, piso, ubicacion, capacidad_equipos, estado, codigo_acceso)
@@ -45,15 +43,15 @@ INSERT IGNORE INTO usuario_laboratorio (id_usuario, id_laboratorio)
 SELECT u.id_usuario, l.id_laboratorio
 FROM usuarios u CROSS JOIN laboratorios l
 WHERE u.email = 'admin@controltech.com'
-  AND l.nombre IN ('Laboratorio 4-1', 'Laboratorio 4-2', 'Laboratorio 4-3', 'Laboratorio 4-4', 'Laboratorio 5-1', 'Laboratorio 5-2');
+  AND l.nombre IN ('Laboratorio 4-1', 'Laboratorio 4-2', 'Laboratorio 4-3', 'Laboratorio 5-1', 'Laboratorio 5-2');
 
--- Carlos: los cuatro laboratorios del 4to piso.
+-- Carlos: los laboratorios del 4to piso.
 INSERT IGNORE INTO usuario_laboratorio (id_usuario, id_laboratorio)
 SELECT u.id_usuario, l.id_laboratorio
 FROM usuarios u CROSS JOIN laboratorios l
 WHERE u.email = 'carlos@suiza26.edu'
   AND l.piso = '4to piso'
-  AND l.nombre IN ('Laboratorio 4-1', 'Laboratorio 4-2', 'Laboratorio 4-3', 'Laboratorio 4-4', 'Laboratorio 5-1', 'Laboratorio 5-2');
+  AND l.nombre IN ('Laboratorio 4-1', 'Laboratorio 4-2', 'Laboratorio 4-3', 'Laboratorio 5-1', 'Laboratorio 5-2');
 
 -- Diego: los dos laboratorios del 5to piso.
 INSERT IGNORE INTO usuario_laboratorio (id_usuario, id_laboratorio)
@@ -61,7 +59,7 @@ SELECT u.id_usuario, l.id_laboratorio
 FROM usuarios u CROSS JOIN laboratorios l
 WHERE u.email = 'diego@suiza26.edu'
   AND l.piso = '5to piso'
-  AND l.nombre IN ('Laboratorio 4-1', 'Laboratorio 4-2', 'Laboratorio 4-3', 'Laboratorio 4-4', 'Laboratorio 5-1', 'Laboratorio 5-2');
+  AND l.nombre IN ('Laboratorio 4-1', 'Laboratorio 4-2', 'Laboratorio 4-3', 'Laboratorio 5-1', 'Laboratorio 5-2');
 
 -- Docentes: laboratorios donde se les asigna acceso de demostracion.
 INSERT IGNORE INTO usuario_laboratorio (id_usuario, id_laboratorio)
@@ -83,7 +81,7 @@ FROM usuarios u CROSS JOIN laboratorios l
 WHERE u.email = 'sofia@suiza26.edu'
   AND l.nombre IN ('Laboratorio 5-1', 'Laboratorio 5-2');
 
--- 4. COMPUTADORAS: 12 por laboratorio, 72 en total (INSERT IGNORE omite las ya registradas)
+-- 4. COMPUTADORAS: 12 por laboratorio, 60 en total (INSERT IGNORE omite las ya registradas)
 INSERT IGNORE INTO equipos
 (identificador, nro_serie, tipo, marca, modelo, procesador, ram, almacenamiento,
  estado, id_laboratorio, id_responsable)
@@ -125,18 +123,6 @@ VALUES
 ('PC-4C-10', 'CT26-4C-010', 'Computadora', 'Dell', 'OptiPlex 3080', 'Intel Core i3-10100', '8 GB', '256 GB SSD', 'Disponible', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-3'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
 ('PC-4C-11', 'CT26-4C-011', 'Computadora', 'HP', 'ProDesk 400 G7', 'Intel Core i5-10500', '16 GB', '1 TB HDD', 'En mantenimiento', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-3'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
 ('PC-4C-12', 'CT26-4C-012', 'Computadora', 'Lenovo', 'ThinkCentre M75', 'AMD Ryzen 5', '16 GB', '512 GB SSD', 'Fuera de servicio', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-3'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-01', 'CT26-4D-001', 'Computadora', 'Dell', 'OptiPlex 7090', 'Intel Core i5-11500', '16 GB', '512 GB SSD', 'Operativo', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-02', 'CT26-4D-002', 'Computadora', 'HP', 'ProDesk 600 G6', 'Intel Core i5-10500', '16 GB', '512 GB SSD', 'Operativo', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-03', 'CT26-4D-003', 'Computadora', 'Lenovo', 'ThinkCentre M720', 'Intel Core i5-8500', '8 GB', '256 GB SSD', 'Operativo', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-04', 'CT26-4D-004', 'Computadora', 'Dell', 'OptiPlex 3080', 'Intel Core i3-10100', '8 GB', '256 GB SSD', 'Operativo', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-05', 'CT26-4D-005', 'Computadora', 'HP', 'ProDesk 400 G7', 'Intel Core i5-10500', '16 GB', '1 TB HDD', 'Operativo', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-06', 'CT26-4D-006', 'Computadora', 'Lenovo', 'ThinkCentre M75', 'AMD Ryzen 5', '16 GB', '512 GB SSD', 'Operativo', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-07', 'CT26-4D-007', 'Computadora', 'Dell', 'OptiPlex 7090', 'Intel Core i5-11500', '16 GB', '512 GB SSD', 'En uso', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-08', 'CT26-4D-008', 'Computadora', 'HP', 'ProDesk 600 G6', 'Intel Core i5-10500', '16 GB', '512 GB SSD', 'En uso', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-09', 'CT26-4D-009', 'Computadora', 'Lenovo', 'ThinkCentre M720', 'Intel Core i5-8500', '8 GB', '256 GB SSD', 'Disponible', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-10', 'CT26-4D-010', 'Computadora', 'Dell', 'OptiPlex 3080', 'Intel Core i3-10100', '8 GB', '256 GB SSD', 'Disponible', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-11', 'CT26-4D-011', 'Computadora', 'HP', 'ProDesk 400 G7', 'Intel Core i5-10500', '16 GB', '1 TB HDD', 'En mantenimiento', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
-('PC-4D-12', 'CT26-4D-012', 'Computadora', 'Lenovo', 'ThinkCentre M75', 'AMD Ryzen 5', '16 GB', '512 GB SSD', 'Fuera de servicio', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 4-4'), (SELECT id_usuario FROM usuarios WHERE email = 'carlos@suiza26.edu')),
 ('PC-5A-01', 'CT26-5A-001', 'Computadora', 'Dell', 'OptiPlex 7090', 'Intel Core i5-11500', '16 GB', '512 GB SSD', 'Operativo', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 5-1'), (SELECT id_usuario FROM usuarios WHERE email = 'diego@suiza26.edu')),
 ('PC-5A-02', 'CT26-5A-002', 'Computadora', 'HP', 'ProDesk 600 G6', 'Intel Core i5-10500', '16 GB', '512 GB SSD', 'Operativo', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 5-1'), (SELECT id_usuario FROM usuarios WHERE email = 'diego@suiza26.edu')),
 ('PC-5A-03', 'CT26-5A-003', 'Computadora', 'Lenovo', 'ThinkCentre M720', 'Intel Core i5-8500', '8 GB', '256 GB SSD', 'Operativo', (SELECT id_laboratorio FROM laboratorios WHERE nombre = 'Laboratorio 5-1'), (SELECT id_usuario FROM usuarios WHERE email = 'diego@suiza26.edu')),
@@ -204,7 +190,7 @@ FROM software s WHERE s.nombre_software = 'Visual Studio 2022'
   AND NOT EXISTS (SELECT 1 FROM licencias li WHERE li.id_software = s.id_software);
 
 -- 7. INSTALACIONES DE SOFTWARE EN EQUIPOS
--- Solo sobre las 72 computadoras originales que todavia no tienen software
+-- Solo sobre las 60 computadoras originales que todavia no tienen software
 -- registrado: no se reinstala software quitado a mano ni se toca a equipos nuevos.
 INSERT IGNORE INTO equipo_software (id_equipo, id_software, fecha_instalacion)
 SELECT e.id_equipo, s.id_software, '2026-09-01'
@@ -216,11 +202,15 @@ WHERE e.identificador IN (
   'PC-4A-09', 'PC-4A-10', 'PC-4A-11', 'PC-4A-12', 'PC-4B-01', 'PC-4B-02', 'PC-4B-03', 'PC-4B-04',
   'PC-4B-05', 'PC-4B-06', 'PC-4B-07', 'PC-4B-08', 'PC-4B-09', 'PC-4B-10', 'PC-4B-11', 'PC-4B-12',
   'PC-4C-01', 'PC-4C-02', 'PC-4C-03', 'PC-4C-04', 'PC-4C-05', 'PC-4C-06', 'PC-4C-07', 'PC-4C-08',
-  'PC-4C-09', 'PC-4C-10', 'PC-4C-11', 'PC-4C-12', 'PC-4D-01', 'PC-4D-02', 'PC-4D-03', 'PC-4D-04',
-  'PC-4D-05', 'PC-4D-06', 'PC-4D-07', 'PC-4D-08', 'PC-4D-09', 'PC-4D-10', 'PC-4D-11', 'PC-4D-12',
-  'PC-5A-01', 'PC-5A-02', 'PC-5A-03', 'PC-5A-04', 'PC-5A-05', 'PC-5A-06', 'PC-5A-07', 'PC-5A-08',
-  'PC-5A-09', 'PC-5A-10', 'PC-5A-11', 'PC-5A-12', 'PC-5B-01', 'PC-5B-02', 'PC-5B-03', 'PC-5B-04',
-  'PC-5B-05', 'PC-5B-06', 'PC-5B-07', 'PC-5B-08', 'PC-5B-09', 'PC-5B-10', 'PC-5B-11', 'PC-5B-12')
+  'PC-4C-09', 'PC-4C-10', 'PC-4C-11', 'PC-4C-12', 'PC-5A-01', 'PC-5A-02', 'PC-5A-03', 'PC-5A-04',
+  'PC-5A-05', 'PC-5A-06', 'PC-5A-07', 'PC-5A-08', 'PC-5A-09', 'PC-5A-10', 'PC-5A-11', 'PC-5A-12',
+  'PC-5B-01', 'PC-5B-02', 'PC-5B-03', 'PC-5B-04', 'PC-5B-05', 'PC-5B-06', 'PC-5B-07', 'PC-5B-08',
+  'PC-5B-09', 'PC-5B-10', 'PC-5B-11', 'PC-5B-12')
   AND NOT EXISTS (SELECT 1 FROM equipo_software x WHERE x.id_equipo = e.id_equipo)
   AND (s.nombre_software IN ('Google Chrome', 'Microsoft Office 365', 'Visual Studio Code')
-       OR (s.nombre_software = 'Visual Studio 2022' AND l.nombre IN ('Laboratorio 4-4', 'Laboratorio 5-2')));
+       OR (s.nombre_software = 'Visual Studio 2022' AND l.nombre = 'Laboratorio 5-2'));
+
+-- 8. LABORATORIO 4-4: ya no forma parte de los laboratorios iniciales.
+-- Si existe en la base se marca Inactivo; no se elimina nada (sus equipos y su
+-- historial se conservan y el administrador puede reactivarlo).
+UPDATE laboratorios SET estado = 'Inactivo' WHERE nombre = 'Laboratorio 4-4' AND estado = 'Activo';

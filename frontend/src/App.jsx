@@ -35,7 +35,7 @@ export default function App() {
   if (!usuario) return <Login />
 
   const visibles = SECCIONES.filter((s) => !s.soloAdmin || esAdmin)
-  const actual = visibles.find((s) => s.id === ruta.split('?')[0]) || visibles[0]
+  const actual = visibles.find((s) => s.id === ruta.split(/[?/]/)[0]) || visibles[0]
   const Pagina = actual.componente
 
   return (

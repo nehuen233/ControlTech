@@ -155,6 +155,44 @@ tr:last-child td { border-bottom: 0; }
 .barra-ocupacion { height: 6px; border-radius: 999px; background: var(--neutral-soft); overflow: hidden; }
 .barra-ocupacion span { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
 
+/* Pagina de laboratorio */
+.volver { font-size: .88rem; font-weight: 600; text-decoration: none; }
+.lab-cabecera { display: flex; flex-direction: column; gap: .3rem; }
+.lab-titulo { display: flex; align-items: center; gap: .6rem; }
+.lab-titulo h2 { font-size: 1.35rem; }
+.pestanas-lab { display: flex; flex-wrap: wrap; gap: .6rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.pestanas-lab button { display: inline-flex; align-items: center; gap: .55rem; font: inherit; font-weight: 600; font-size: .95rem; padding: .6rem 1rem; border-radius: 10px; border: 1px solid transparent; background: var(--neutral-soft); color: var(--text); cursor: pointer; }
+.pestanas-lab button:hover { border-color: var(--border); }
+.pestanas-lab button.activa { background: var(--primary); color: #fff; }
+.pestanas-lab svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.contador { font-size: .78rem; min-width: 1.5rem; padding: .05rem .45rem; border-radius: 999px; background: rgba(0,0,0,.08); text-align: center; }
+.pestanas-lab button.activa .contador { background: rgba(255,255,255,.25); }
+.titulo-seccion { font-size: 1.3rem; }
+.btn-icono { gap: .4rem; }
+.btn-icono svg, .icono-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.btn-peligro { background: var(--danger); color: #fff; }
+.tabla-software td { vertical-align: middle; padding: .9rem .75rem; }
+.nombre-sw { font-size: .98rem; }
+.clave { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .75rem; color: var(--muted); margin-top: .15rem; word-break: break-all; }
+.centro { text-align: center; }
+.acciones-icono { display: inline-flex; gap: .25rem; }
+.icono-btn { background: none; border: 0; padding: .35rem; border-radius: 6px; cursor: pointer; display: inline-grid; place-items: center; }
+.icono-btn.editar { color: var(--primary); }
+.icono-btn.borrar { color: var(--danger); }
+.icono-btn:hover { background: var(--surface-2); }
+.icono-btn:focus-visible { outline: 2px solid var(--primary); }
+.badge-licencia-Pago { background: var(--info-soft); color: var(--info); }
+.badge-licencia-Gratuita { background: var(--ok-soft); color: var(--ok); }
+.badge-licencia-Prueba { background: var(--warn-soft); color: var(--warn); }
+.lista-catalogo { display: flex; flex-direction: column; gap: .4rem; max-height: 280px; overflow-y: auto; }
+.opcion-sw { flex-direction: row; align-items: center; gap: .7rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; color: var(--text); font-weight: 500; }
+.opcion-sw.elegida { border-color: var(--primary); background: var(--primary-soft); }
+.opcion-sw input { flex-shrink: 0; }
+.opcion-sw-texto { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.opcion-sw-lic { display: flex; flex-direction: column; align-items: flex-end; gap: .15rem; }
+.check-todos { margin-bottom: .5rem; font-weight: 600; }
+.campo-corto { max-width: 220px; }
+
 /* Fichas */
 .ficha { display: flex; flex-direction: column; gap: .5rem; }
 .ficha > p { margin: 0; }

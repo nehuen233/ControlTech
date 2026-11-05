@@ -2,9 +2,24 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../AuthContext.jsx'
 import { Alerta, Badge, Cargando, Modal } from '../components/ui.jsx'
+import LaboratorioDetalle from './LaboratorioDetalle.jsx'
+
+// #/laboratorios/3 abre la pagina del laboratorio 3.
+const idDesdeHash = () => window.location.hash.match(/^#\/laboratorios\/(\d+)/)?.[1] || null
 
 export default function Laboratorios() {
+  const [idLab, setIdLab] = useState(idDesdeHash)
+  useEffect(() => {
+    const onHash = () => setIdLab(idDesdeHash())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+  return idLab ? <LaboratorioDetalle key={idLab} id={idLab} /> : <ListaLaboratorios />
+}
+
+function ListaLaboratorios() {
   const { esAdmin } = useAuth()
+  const [verInactivos, setVerInactivos] = useState(false)
   const [labs, setLabs] = useState(null)
   const [error, setError] = useState('')
   const [aviso, setAviso] = useState('')
@@ -29,7 +44,7 @@ export default function Laboratorios() {
       <Alerta tipo="ok" onClose={() => setAviso('')}>{aviso}</Alerta>
       {!labs ? <Cargando /> : labs.length === 0 ? <p className="vacio">No hay laboratorios para mostrar.</p> : (
         <div className="lista-labs">
-          {labs.map((l) => {
+          {labs.filter((l) => verInactivos || l.estado === 'Activo').map((l) => {
             const ocupacion = l.capacidad_equipos ? Math.min(100, Math.round((l.total_equipos / l.capacidad_equipos) * 100)) : null
             return (
               <article key={l.id_laboratorio} className="tarjeta-lab">
@@ -52,14 +67,19 @@ export default function Laboratorios() {
                   </div>
                 )}
                 <footer>
-                  <button type="button" className="btn btn-secundario" onClick={() => setModal({ tipo: 'detalle', id: l.id_laboratorio })}>Ver detalle</button>
-                  <a className="btn btn-secundario" href={`#/equipos?laboratorio=${l.id_laboratorio}`}>Ver equipos</a>
+                  <a className="btn btn-primario" href={`#/laboratorios/${l.id_laboratorio}`}>Abrir</a>
+                  <button type="button" className="btn btn-secundario" onClick={() => setModal({ tipo: 'detalle', id: l.id_laboratorio })}>Detalle</button>
                   {esAdmin && <button type="button" className="btn-link" onClick={() => setModal({ tipo: 'form', lab: l })}>Editar</button>}
                 </footer>
               </article>
             )
           })}
         </div>
+      )}
+      {labs && labs.some((l) => l.estado !== 'Activo') && (
+        <button type="button" className="btn-link" onClick={() => setVerInactivos((v) => !v)}>
+          {verInactivos ? 'Ocultar laboratorios inactivos' : `Mostrar laboratorios inactivos (${labs.filter((l) => l.estado !== 'Activo').length})`}
+        </button>
       )}
       {modal?.tipo === 'detalle' && <DetalleLaboratorio id={modal.id} onClose={() => setModal(null)} />}
       {modal?.tipo === 'form' && <FormLaboratorio lab={modal.lab} onClose={() => setModal(null)} onGuardado={guardado} />}
@@ -100,7 +120,7 @@ function DetalleLaboratorio({ id, onClose }) {
             </ul>
           )}
           <div className="form-acciones">
-            <a className="btn btn-primario" href={`#/equipos?laboratorio=${lab.id_laboratorio}`} onClick={onClose}>Ver equipos del laboratorio</a>
+            <a className="btn btn-primario" href={`#/laboratorios/${lab.id_laboratorio}`} onClick={onClose}>Abrir laboratorio</a>
           </div>
         </div>
       )}

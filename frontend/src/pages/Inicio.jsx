@@ -11,7 +11,7 @@ export default function Inicio() {
 
   useEffect(() => {
     Promise.all([api('/laboratorios'), api('/mantenimientos/resumen')])
-      .then(([l, r]) => { setLabs(l); setResumen(r) })
+      .then(([l, r]) => { setLabs(l.filter((x) => x.estado === 'Activo')); setResumen(r) })
       .catch((e) => setError(e.message))
   }, [])
 
@@ -36,7 +36,7 @@ export default function Inicio() {
               <tbody>
                 {labs.map((l) => (
                   <tr key={l.id_laboratorio}>
-                    <td><strong>{l.nombre}</strong></td>
+                    <td><a href={`#/laboratorios/${l.id_laboratorio}`}><strong>{l.nombre}</strong></a></td>
                     <td>{[l.piso, l.ubicacion].filter(Boolean).join(' · ')}</td>
                     <td>{l.estado}</td>
                     <td className="num">{l.total_equipos}</td>

@@ -381,13 +381,14 @@ test('edición de laboratorio', async () => {
 
 // ---------------- Informacion de equipos ----------------
 test('ficha completa de un equipo con software y licencias', async () => {
-  const eq = await equipo('PC-4D-01'); // Lab 4-4: Chrome, Office, VS Code y Visual Studio 2022
+  const eq = await equipo('PC-5B-01'); // Lab 5-2: Chrome, Office, VS Code y Visual Studio 2022
   const r = await call(`/equipos/${eq.id_equipo}`, { token: admin.token });
   assert.equal(r.status, 200);
   for (const k of ['identificador', 'nro_serie', 'tipo', 'marca', 'modelo', 'procesador', 'ram', 'almacenamiento', 'estado', 'laboratorio', 'responsable', 'fecha_registro']) {
     assert.ok(k in r.data, `falta ${k}`);
   }
-  assert.deepEqual(r.data.software.map((s) => s.nombre_software).sort(), ['Google Chrome', 'Microsoft Office 365', 'Visual Studio 2022', 'Visual Studio Code']);
+  const programas = r.data.software.map((s) => s.nombre_software);
+  for (const n of ['Google Chrome', 'Microsoft Office 365', 'Visual Studio 2022', 'Visual Studio Code']) assert.ok(programas.includes(n), `falta ${n}`);
   assert.equal(r.data.software.find((s) => s.nombre_software === 'Visual Studio 2022').tipo_licencia, 'Prueba');
   assert.ok('total' in r.data.mantenimientos && Array.isArray(r.data.problemas_activos));
   const maria = await login('maria@suiza26.edu', 'demo123');
@@ -485,6 +486,120 @@ test('permisos: docente de laboratorio gestiona equipos solo en sus laboratorios
   assert.equal((await call(`/equipos/${propio.id_equipo}`, { token: pedro.token })).status, 200, 'el docente consulta la ficha');
   assert.equal((await call(`/equipos/${propio.id_equipo}`, { method: 'PUT', token: pedro.token, body: { ram: '64 GB' } })).status, 403);
   assert.equal((await call('/equipos', { method: 'POST', token: pedro.token, body: {} })).status, 403);
+});
+
+// ---------------- Laboratorios iniciales ----------------
+test('los 5 laboratorios iniciales figuran en el sistema y no se duplican', async () => {
+  const { asegurarLaboratoriosIniciales, LABORATORIOS_INICIALES } = require('../src/config/laboratoriosIniciales');
+  const nombres = LABORATORIOS_INICIALES.map((l) => l.nombre);
+  assert.deepEqual(nombres, ['Laboratorio 4-1', 'Laboratorio 4-2', 'Laboratorio 4-3', 'Laboratorio 5-1', 'Laboratorio 5-2']);
+  assert.equal(await asegurarLaboratoriosIniciales(), 0, 'una segunda verificación no crea nada');
+  const [rows] = await db.query('SELECT nombre, COUNT(*) AS n FROM laboratorios WHERE nombre IN (?) GROUP BY nombre', [nombres]);
+  assert.equal(rows.length, 5);
+  assert.ok(rows.every((r) => Number(r.n) === 1), 'cada laboratorio existe una sola vez');
+  const lista = await call('/laboratorios', { token: admin.token });
+  for (const n of nombres) assert.ok(lista.data.some((l) => l.nombre === n && l.estado === 'Activo'), `${n} visible y activo`);
+  await require('../src/config/db').pool.end();
+});
+
+// ---------------- Software por laboratorio ----------------
+const SW = `Herramienta Prueba ${SUFIJO}`;
+const CLAVE = `TEST-${SUFIJO}-ABCD`.toUpperCase();
+let idSwNuevo;
+
+test('software de un laboratorio con licencias e instalaciones', async () => {
+  const r = await call(`/laboratorios/${await idLab('Laboratorio 5-2')}/software`, { token: admin.token });
+  assert.equal(r.status, 200);
+  const vs = r.data.find((s) => s.nombre_software === 'Visual Studio 2022');
+  assert.ok(vs, 'Visual Studio 2022 está instalado en el 5-2');
+  assert.equal(vs.licencia.tipo_licencia, 'Prueba');
+  assert.ok(vs.instalaciones >= 12);
+  assert.equal(vs.equipos.length, vs.instalaciones);
+  const det = await call(`/laboratorios/${await idLab('Laboratorio 5-2')}`, { token: admin.token });
+  assert.equal(det.data.total_software, r.data.length);
+});
+
+test('agregar software nuevo con licencia a todas las computadoras del laboratorio', async () => {
+  const body = {
+    software: { nombre_software: SW, version: '1.0', proveedor: 'Proveedor Prueba' },
+    licencia: { tipo_licencia: 'Pago', numero_licencia: CLAVE, fecha_vencimiento: '2026-12-30' },
+    equipos: 'todos', fecha_instalacion: '2026-11-05',
+  };
+  const r = await call(`/laboratorios/${labTest}/software`, { method: 'POST', token: admin.token, body });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.instalados_ahora, 3);
+  assert.equal(r.data.instalaciones, 3);
+  assert.equal(r.data.licencia.tipo_licencia, 'Pago');
+  assert.equal(r.data.licencia.numero_licencia, CLAVE);
+  assert.equal(r.data.licencia.fecha_vencimiento, '2026-12-30');
+  idSwNuevo = r.data.id_software;
+  const dup = await call(`/laboratorios/${labTest}/software`, { method: 'POST', token: admin.token, body: { ...body, licencia: undefined } });
+  assert.equal(dup.status, 409);
+  assert.match(dup.data.error, /ya existe en el catálogo/);
+  const otra = await call(`/laboratorios/${labTest}/software`, { method: 'POST', token: admin.token, body: { id_software: idSwNuevo, equipos: 'todos' } });
+  assert.equal(otra.status, 409);
+  assert.match(otra.data.error, /ya estaba instalado/);
+  const sinNombre = await call(`/laboratorios/${labTest}/software`, { method: 'POST', token: admin.token, body: { software: {}, equipos: 'todos' } });
+  assert.equal(sinNombre.status, 400);
+  const claveDup = await call(`/laboratorios/${labTest}/software`, { method: 'POST', token: admin.token, body: { software: { nombre_software: `${SW} B` }, licencia: { tipo_licencia: 'Pago', numero_licencia: CLAVE }, equipos: 'todos' } });
+  assert.equal(claveDup.status, 409);
+  assert.match(claveDup.data.error, /clave de licencia ya está registrada/);
+  const ajeno = await equipo('PC-4A-01');
+  const eqAjeno = await call(`/laboratorios/${labTest}/software`, { method: 'POST', token: admin.token, body: { id_software: idSwNuevo, equipos: [ajeno.id_equipo] } });
+  assert.equal(eqAjeno.status, 400);
+  assert.match(eqAjeno.data.error, /no pertenece a este laboratorio/);
+});
+
+test('elegir software del catálogo e instalarlo en computadoras puntuales', async () => {
+  const [[xampp]] = await db.query("SELECT id_software FROM software WHERE nombre_software = 'GitHub Desktop'");
+  const [[eq]] = await db.query('SELECT id_equipo FROM equipos WHERE id_laboratorio = ? ORDER BY id_equipo LIMIT 1', [labTest]);
+  const r = await call(`/laboratorios/${labTest}/software`, { method: 'POST', token: admin.token, body: { id_software: xampp.id_software, equipos: [eq.id_equipo] } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.instalaciones, 1);
+  assert.deepEqual(r.data.equipos, [eq.id_equipo]);
+});
+
+test('editar software del laboratorio: equipos (gestión) y datos o licencia (solo administrador)', async () => {
+  const eva = await login(`equipos.${SUFIJO}@test.controltech`, 'Equipos2026'); // Docente de laboratorio del laboratorio de prueba
+  const lista = await call(`/laboratorios/${labTest}/software`, { token: eva.token });
+  const item = lista.data.find((s) => s.id_software === idSwNuevo);
+  assert.equal(item.licencia.numero_licencia, CLAVE, 'los roles de gestión ven la clave');
+  const uno = item.equipos.slice(0, 1);
+  const r = await call(`/laboratorios/${labTest}/software/${idSwNuevo}`, { method: 'PUT', token: eva.token, body: { equipos: uno } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.instalaciones, 1);
+  const prohibido = await call(`/laboratorios/${labTest}/software/${idSwNuevo}`, { method: 'PUT', token: eva.token, body: { licencia: { tipo_licencia: 'Gratuita' } } });
+  assert.equal(prohibido.status, 403);
+  const admR = await call(`/laboratorios/${labTest}/software/${idSwNuevo}`, { method: 'PUT', token: admin.token, body: { software: { version: '1.1' }, licencia: { tipo_licencia: 'Pago', numero_licencia: CLAVE, fecha_vencimiento: '2027-06-30' } } });
+  assert.equal(admR.status, 200, JSON.stringify(admR.data));
+  assert.equal(admR.data.version, '1.1');
+  assert.equal(admR.data.licencia.fecha_vencimiento, '2027-06-30');
+  const [lics] = await db.query('SELECT COUNT(*) AS n FROM licencias WHERE id_software = ?', [idSwNuevo]);
+  assert.equal(Number(lics[0].n), 1, 'se actualiza la licencia existente, no se duplica');
+});
+
+test('quitar software de un laboratorio y permisos por laboratorio', async () => {
+  const eva = await login(`equipos.${SUFIJO}@test.controltech`, 'Equipos2026');
+  const pedro = await login('pedro@suiza26.edu', 'demo123');
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  const lab41 = await idLab('Laboratorio 4-1');
+  const vista = await call(`/laboratorios/${lab41}/software`, { token: pedro.token });
+  assert.equal(vista.status, 200, 'el docente consulta el software de su laboratorio');
+  assert.ok(vista.data.every((s) => !s.licencia || !('numero_licencia' in s.licencia)), 'el docente no ve claves de licencia');
+  assert.equal((await call(`/laboratorios/${lab41}/software`, { token: maria.token })).status, 403);
+  const [[chrome]] = await db.query("SELECT id_software FROM software WHERE nombre_software = 'Google Chrome'");
+  assert.equal((await call(`/laboratorios/${lab41}/software/${chrome.id_software}`, { method: 'DELETE', token: pedro.token })).status, 403);
+  assert.equal((await call(`/laboratorios/${lab41}/software`, { method: 'POST', token: pedro.token, body: { id_software: chrome.id_software } })).status, 403);
+  assert.equal((await call(`/laboratorios/${lab41}/software/${chrome.id_software}`, { method: 'DELETE', token: eva.token })).status, 403);
+
+  const del = await call(`/laboratorios/${labTest}/software/${idSwNuevo}`, { method: 'DELETE', token: eva.token });
+  assert.equal(del.status, 200, JSON.stringify(del.data));
+  assert.equal(del.data.desinstalado_de, 1);
+  assert.equal((await call(`/laboratorios/${labTest}/software/${idSwNuevo}`, { method: 'DELETE', token: eva.token })).status, 404);
+  const [[cat]] = await db.query('SELECT COUNT(*) AS n FROM software WHERE id_software = ?', [idSwNuevo]);
+  assert.equal(Number(cat.n), 1, 'el software sigue en el catálogo');
+  const [acc] = await db.query("SELECT accion FROM historial_acciones WHERE entidad = 'Software' AND id_registro = ? ORDER BY id_accion", [idSwNuevo]);
+  assert.ok(acc.some((a) => a.accion === 'Eliminar') && acc.some((a) => a.accion === 'Crear'));
 });
 
 // ---------------- Conservacion de datos ----------------

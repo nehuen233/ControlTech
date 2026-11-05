@@ -85,16 +85,6 @@ async function detalle(req, res) {
   res.json(await obtenerFicha(id));
 }
 
-async function catalogoSoftware(req, res) {
-  const rows = await query(
-    `SELECT s.id_software, s.nombre_software, s.version, s.proveedor,
-            (SELECT li.tipo_licencia FROM licencias li WHERE li.id_software = s.id_software
-              ORDER BY FIELD(li.estado, 'Activa') DESC LIMIT 1) AS tipo_licencia
-       FROM software s ORDER BY s.nombre_software`,
-  );
-  res.json(rows);
-}
-
 // ---------- Alta y edicion ----------
 
 function leerCampos(body, parcial) {
@@ -262,4 +252,4 @@ async function actualizar(req, res) {
   res.json(await obtenerFicha(id));
 }
 
-module.exports = { listar, detalle, catalogoSoftware, crear, actualizar };
+module.exports = { listar, detalle, crear, actualizar };

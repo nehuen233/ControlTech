@@ -112,10 +112,22 @@ Son pruebas de integración contra la API y MySQL reales. **Agregan** registros 
 - La cuenta del administrador está protegida: no se puede cambiar su rol, ni duplicar su email, ni crear otro administrador. No existe un endpoint para eliminar usuarios.
 - Las cuentas cargadas por los scripts SQL guardan la contraseña en texto plano; el login las acepta sin modificarlas. Las cuentas nuevas se guardan con hash bcrypt.
 
+## Laboratorios iniciales
+
+Al iniciar, el backend verifica que existan los **5 laboratorios iniciales** (4-1, 4-2, 4-3, 5-1 y 5-2, con los datos de `CONTROL TECH INSERTS.sql`) y crea los que falten. Se identifican por nombre: no se duplican ni se modifican los existentes, y el administrador queda asignado a ellos. El administrador puede crear más laboratorios desde el sistema.
+
+`npm run db:cargar` carga además sus 60 computadoras y el software. El Laboratorio 4-4 ya no forma parte de los datos iniciales: si existe en la base, `db:cargar` lo marca **Inactivo** (no se borran sus equipos ni su historial; el administrador puede reactivarlo, y se muestra con "Mostrar laboratorios inactivos").
+
 ## Sección Laboratorios
 
 - Listado de los laboratorios (el administrador ve todos; el resto, los asignados) con ubicación, ocupación (equipos / capacidad) y equipos con problemas.
 - Detalle de cada laboratorio: equipos por estado, usuarios asignados y mantenimientos abiertos.
+- **Página de cada laboratorio** (botón *Abrir*) con pestañas **Computadoras | Software | Mantenimiento**:
+  - **Software** (*Gestión de Software*): programas instalados en las computadoras del laboratorio con proveedor, licencia (tipo, vencimiento y clave enmascarada), cantidad de equipos y acciones.
+  - **Agregar Software**: elegir uno del catálogo o crear uno nuevo con su licencia, e instalarlo en todas las computadoras o en las que se elijan.
+  - **Editar**: cambiar en qué computadoras está instalado; los datos y la licencia (comunes a todos los laboratorios) solo los modifica el administrador.
+  - **Eliminar**: lo desinstala de las computadoras de ese laboratorio; el software sigue en el catálogo y en los demás laboratorios.
+  - Lo gestionan el administrador y los roles de gestión en sus laboratorios; los docentes lo consultan sin ver las claves.
 - **Alta y edición solo para el administrador**, con validación de nombre único y de capacidad (no puede quedar por debajo de los equipos registrados). El código de acceso solo lo ve el administrador. Los laboratorios no se eliminan: se marcan como *Inactivo*.
 
 ## Información de equipos
@@ -156,6 +168,8 @@ Correspondencia con las tablas existentes:
 | GET | `/api/laboratorios`, `/api/laboratorios/:id` | autenticado (filtrado por laboratorio) |
 | POST / PUT | `/api/laboratorios`, `/api/laboratorios/:id` | administrador |
 | GET | `/api/laboratorios/:id/responsables` | gestión |
+| GET | `/api/laboratorios/:id/software` | autenticado (filtrado por laboratorio) |
+| POST / PUT / DELETE | `/api/laboratorios/:id/software`, `/api/laboratorios/:id/software/:idSoftware` | gestión, en sus laboratorios |
 | GET | `/api/equipos`, `/api/equipos/:id`, `/api/software` | autenticado (filtrado por laboratorio) |
 | POST / PUT | `/api/equipos`, `/api/equipos/:id` | gestión, en sus laboratorios |
 | GET | `/api/mantenimientos/resumen` | autenticado |
