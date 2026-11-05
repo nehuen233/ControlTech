@@ -12,7 +12,7 @@ const filtroInicial = () => {
 }
 
 export default function Equipos() {
-  const { puedeGestionar } = useAuth()
+  const { puedeGestionar, esAdmin } = useAuth()
   const [labs, setLabs] = useState([])
   const [filtros, setFiltros] = useState(filtroInicial)
   const [equipos, setEquipos] = useState(null)
@@ -88,6 +88,7 @@ export default function Equipos() {
                     <td className="acciones-fila">
                       <button type="button" className="btn-link" onClick={() => setModal({ tipo: 'ficha', id: e.id_equipo })}>Ver ficha</button>
                       {puedeGestionar && <button type="button" className="btn-link" onClick={() => setModal({ tipo: 'form', id: e.id_equipo })}>Editar</button>}
+                      {esAdmin && <button type="button" className="btn-link peligro" onClick={() => setModal({ tipo: 'eliminar', id: e.id_equipo })}>Eliminar</button>}
                     </td>
                   </tr>
                 ))}
@@ -98,7 +99,12 @@ export default function Equipos() {
       )}
       {modal?.tipo === 'ficha' && (
         <FichaEquipo id={modal.id} puedeGestionar={puedeGestionar} recarga={recarga}
-          onEditar={() => setModal({ tipo: 'form', id: modal.id })} onClose={() => setModal(null)} />
+          onEditar={() => setModal({ tipo: 'form', id: modal.id })} onClose={() => setModal(null)}
+          onEliminar={() => setModal({ tipo: 'eliminar', id: modal.id })} />
+      )}
+      {modal?.tipo === 'eliminar' && (
+        <EliminarEquipo id={modal.id} onClose={() => setModal(null)}
+          onEliminado={(mensaje) => { setModal(null); setAviso(mensaje); setRecarga((n) => n + 1) }} />
       )}
       {modal?.tipo === 'form' && (
         <FormEquipo id={modal.id} labs={modal.id ? labs : labs.filter((l) => l.estado === 'Activo')}
@@ -108,7 +114,8 @@ export default function Equipos() {
   )
 }
 
-export function FichaEquipo({ id, puedeGestionar, recarga, onEditar, onClose }) {
+export function FichaEquipo({ id, puedeGestionar, recarga, onEditar, onClose, onEliminar }) {
+  const { esAdmin } = useAuth()
   const [eq, setEq] = useState(null)
   const [error, setError] = useState('')
   useEffect(() => { api(`/equipos/${id}`).then(setEq).catch((e) => setError(e.message)) }, [id, recarga])
@@ -183,6 +190,7 @@ export function FichaEquipo({ id, puedeGestionar, recarga, onEditar, onClose }) 
             </ol>
           )}
           <div className="form-acciones">
+            {esAdmin && onEliminar && <button type="button" className="btn-link peligro empuja-izq" onClick={onEliminar}>Eliminar equipo</button>}
             <a className="btn btn-secundario" href="#/mantenimientos" onClick={onClose}>Ir a Mantenimientos</a>
             {puedeGestionar && <button type="button" className="btn btn-primario" onClick={onEditar}>Editar equipo</button>}
           </div>
@@ -330,6 +338,62 @@ export function FormEquipo({ id, labs, laboratorioInicial, onClose, onGuardado }
           <button className="btn btn-primario" disabled={enviando}>{enviando ? 'Guardando…' : 'Guardar'}</button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+// Confirmacion de baja de una computadora. Sus mantenimientos y problemas registrados se
+// eliminan con ella (dependen del equipo en la base): si tiene, se pide confirmarlo.
+export function EliminarEquipo({ id, onClose, onEliminado }) {
+  const [eq, setEq] = useState(null)
+  const [confirmo, setConfirmo] = useState(false)
+  const [error, setError] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  useEffect(() => { api(`/equipos/${id}`).then(setEq).catch((e) => setError(e.message)) }, [id])
+
+  const historial = eq ? eq.mantenimientos.total + eq.problemas_total : 0
+  const eliminar = async () => {
+    setError('')
+    setEnviando(true)
+    try {
+      const r = await api(`/equipos/${id}`, { method: 'DELETE', body: { confirmar_historial: historial > 0 } })
+      onEliminado(`Equipo ${r.identificador} eliminado.`)
+    } catch (err) {
+      setError(err.message)
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <Modal titulo={eq ? `Eliminar equipo ${eq.identificador}` : 'Eliminar equipo'} onClose={onClose} ancho="520px">
+      <div className="form">
+        <Alerta>{error}</Alerta>
+        {!eq && !error ? <Cargando /> : eq && (
+          <>
+            <p>Se va a eliminar <strong>{eq.identificador}</strong> ({eq.marca} {eq.modelo}, serie {eq.nro_serie}) del {eq.laboratorio}. Esta acción no se puede deshacer.</p>
+            <ul className="lista-simple chico">
+              {eq.mantenimientos.total > 0 && (
+                <li><strong>{eq.mantenimientos.total} mantenimiento(s)</strong>{eq.mantenimientos.abiertos ? ` (${eq.mantenimientos.abiertos} sin finalizar)` : ''} se eliminan junto con el equipo.</li>
+              )}
+              {eq.problemas_total > 0 && <li><strong>{eq.problemas_total} problema(s) reportado(s)</strong> se eliminan junto con el equipo.</li>}
+              {eq.software.length > 0 && <li>Se quita el registro de {eq.software.length} programa(s) instalado(s).</li>}
+              {historial === 0 && <li>No tiene mantenimientos ni problemas registrados.</li>}
+              <li>La baja queda registrada en el historial de acciones.</li>
+            </ul>
+            {historial > 0 && (
+              <p className="texto-suave chico">Si querés conservar su historial, marcá el equipo como <strong>Fuera de servicio</strong> desde Editar en lugar de eliminarlo.</p>
+            )}
+            <label className="check">
+              <input type="checkbox" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} />
+              {historial > 0 ? 'Entiendo que se eliminan el equipo y su historial' : 'Entiendo que el equipo se elimina definitivamente'}
+            </label>
+            <div className="form-acciones">
+              <button type="button" className="btn btn-secundario" onClick={onClose}>Cancelar</button>
+              <button type="button" className="btn btn-peligro" onClick={eliminar} disabled={!confirmo || enviando}>{enviando ? 'Eliminando…' : 'Eliminar equipo'}</button>
+            </div>
+          </>
+        )}
+      </div>
     </Modal>
   )
 }

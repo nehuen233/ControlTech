@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../AuthContext.jsx'
 import { Alerta, Badge, Cargando, Modal, etiqueta, fecha, hoy, moneda } from '../components/ui.jsx'
-import { FichaEquipo, FormEquipo } from './Equipos.jsx'
+import { EliminarEquipo, FichaEquipo, FormEquipo } from './Equipos.jsx'
 import { EliminarLaboratorio } from './Laboratorios.jsx'
 
 // Pagina de un laboratorio con pestañas: Computadoras | Software | Mantenimiento.
@@ -115,7 +115,12 @@ function Computadoras({ lab, puedeGestionar, onCambio }) {
       )}
       {modal?.tipo === 'ficha' && (
         <FichaEquipo id={modal.id} puedeGestionar={puedeGestionar} recarga={recarga}
-          onEditar={() => setModal({ tipo: 'form', id: modal.id })} onClose={() => setModal(null)} />
+          onEditar={() => setModal({ tipo: 'form', id: modal.id })} onClose={() => setModal(null)}
+          onEliminar={() => setModal({ tipo: 'eliminar', id: modal.id })} />
+      )}
+      {modal?.tipo === 'eliminar' && (
+        <EliminarEquipo id={modal.id} onClose={() => setModal(null)}
+          onEliminado={(mensaje) => { setModal(null); setAviso(mensaje); setRecarga((n) => n + 1); onCambio() }} />
       )}
       {modal?.tipo === 'form' && (
         <FormEquipo id={modal.id} labs={[lab]} laboratorioInicial={String(lab.id_laboratorio)}

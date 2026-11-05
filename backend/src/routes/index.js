@@ -54,6 +54,7 @@ r.get('/equipos', autenticar, h(equipos.listar));
 r.post('/equipos', autenticar, permitirRoles(ROLES_GESTION_MANTENIMIENTO), h(equipos.crear));
 r.get('/equipos/:id', autenticar, h(equipos.detalle));
 r.put('/equipos/:id', autenticar, permitirRoles(ROLES_GESTION_MANTENIMIENTO), h(equipos.actualizar));
+r.delete('/equipos/:id', soloAdmin, h(equipos.eliminar));
 
 // Seccion unificada MANTENIMIENTOS
 const gestion = permitirRoles(ROLES_GESTION_MANTENIMIENTO);

@@ -524,7 +524,8 @@ test('computadoras iniciales: cargadas en cada laboratorio y distintas entre lab
       'SELECT e.identificador FROM equipos e JOIN laboratorios l ON l.id_laboratorio = e.id_laboratorio WHERE l.nombre = ? AND e.identificador LIKE ?',
       [p.laboratorio, `PC-${p.prefijo}-%`],
     );
-    assert.ok(rows.length >= p.cantidad, `${p.laboratorio}: ${rows.length} de ${p.cantidad} computadoras`);
+    const [bajas] = await db.query("SELECT COUNT(*) AS n FROM historial_acciones WHERE entidad = 'Equipo' AND accion = 'Eliminar' AND detalle LIKE ?", [`Baja del equipo "PC-${p.prefijo}-%`]);
+    assert.ok(rows.length + Number(bajas[0].n) >= p.cantidad, `${p.laboratorio}: ${rows.length} de ${p.cantidad} computadoras`);
   }
   const r = await asegurarDatosIniciales();
   assert.equal(r.equipos_agregados, 0, 'una segunda aplicación no agrega computadoras');
@@ -687,6 +688,53 @@ test('eliminar un laboratorio con computadoras: se trasladan con su historial', 
   assert.equal(mant.id_equipo, eqs[0].id_equipo, 'el mantenimiento sigue vinculado a la computadora');
   const lista = await call('/mantenimientos', { token: admin.token, body: undefined });
   assert.ok(lista.data.some((x) => x.id_mantenimiento === m.data.id_mantenimiento && x.laboratorio === `Lab Destino ${SUFIJO}`));
+});
+
+// ---------------- Eliminacion de equipos ----------------
+test('eliminar equipos: solo el administrador y con confirmación si tienen historial', async () => {
+  const lab = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Bajas ${SUFIJO}`, capacidad_equipos: 5 } });
+  const idLabB = lab.data.id_laboratorio;
+  const nuevo = async (n) => (await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-BAJA${n}-${SUFIJO}`, nro_serie: `SBAJA${n}-${SUFIJO}`, marca: 'HP', id_laboratorio: idLabB } })).data;
+  const sinHist = await nuevo(1);
+  const conHist = await nuevo(2);
+
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  assert.equal((await call(`/equipos/${sinHist.id_equipo}`, { method: 'DELETE', token: maria.token })).status, 403);
+  const tec = await login(`tecnico.${SUFIJO}@test.controltech`, 'Tecnico2026');
+  assert.equal((await call(`/equipos/${sinHist.id_equipo}`, { method: 'DELETE', token: tec.token })).status, 403, 'un técnico no elimina equipos');
+
+  // Sin historial: se elimina directamente.
+  const r1 = await call(`/equipos/${sinHist.id_equipo}`, { method: 'DELETE', token: admin.token });
+  assert.equal(r1.status, 200, JSON.stringify(r1.data));
+  assert.equal(r1.data.mantenimientos_eliminados, 0);
+  assert.equal((await call(`/equipos/${sinHist.id_equipo}`, { token: admin.token })).status, 404);
+  assert.equal((await call(`/equipos/${sinHist.id_equipo}`, { method: 'DELETE', token: admin.token })).status, 404);
+
+  // Con historial: mantenimiento, problema y software.
+  const [[chrome]] = await db.query("SELECT id_software FROM software WHERE nombre_software = 'Google Chrome'");
+  await call(`/laboratorios/${idLabB}/software`, { method: 'POST', token: admin.token, body: { id_software: chrome.id_software, equipos: [conHist.id_equipo] } });
+  await call('/mantenimientos', { method: 'POST', token: admin.token, body: { id_equipo: conHist.id_equipo, fecha_mantenimiento: '2026-11-05', tipo: 'Correctivo', detalle: `Antes de la baja ${SUFIJO}` } });
+  await call('/mantenimientos/problemas', { method: 'POST', token: admin.token, body: { id_equipo: conHist.id_equipo, titulo: `No enciende ${SUFIJO}`, descripcion: 'x' } });
+  const sinConfirmar = await call(`/equipos/${conHist.id_equipo}`, { method: 'DELETE', token: admin.token });
+  assert.equal(sinConfirmar.status, 409);
+  assert.match(sinConfirmar.data.error, /1 mantenimiento\(s\) y 1 problema\(s\)/);
+  assert.deepEqual(sinConfirmar.data.detalles, { mantenimientos: 1, mantenimientos_abiertos: 1, alertas: 1 });
+  const [[aun]] = await db.query('SELECT COUNT(*) AS n FROM equipos WHERE id_equipo = ?', [conHist.id_equipo]);
+  assert.equal(Number(aun.n), 1, 'sin confirmar no se elimina nada');
+
+  const r2 = await call(`/equipos/${conHist.id_equipo}`, { method: 'DELETE', token: admin.token, body: { confirmar_historial: true } });
+  assert.equal(r2.status, 200, JSON.stringify(r2.data));
+  assert.deepEqual([r2.data.mantenimientos_eliminados, r2.data.problemas_eliminados, r2.data.software_desinstalado], [1, 1, 1]);
+  for (const t of ['equipos', 'mantenimientos', 'alertas', 'equipo_software']) {
+    const [[c]] = await db.query(`SELECT COUNT(*) AS n FROM ${t} WHERE id_equipo = ?`, [conHist.id_equipo]);
+    assert.equal(Number(c.n), 0, `no quedan filas en ${t}`);
+  }
+  const [[h]] = await db.query("SELECT detalle FROM historial_acciones WHERE entidad = 'Equipo' AND accion = 'Eliminar' AND id_registro = ?", [conHist.id_equipo]);
+  const S = SUFIJO.toUpperCase(); // identificador y serie se guardan en mayúsculas
+  assert.match(h.detalle, new RegExp(`^Baja del equipo "PC-BAJA2-${S}" \\(serie SBAJA2-${S}`));
+  assert.match(h.detalle, /Se eliminaron 1 mantenimiento\(s\) y 1 problema\(s\)/);
+  const det = await call(`/laboratorios/${idLabB}`, { token: admin.token });
+  assert.equal(det.data.total_equipos, 0);
 });
 
 // ---------------- Conservacion de datos ----------------

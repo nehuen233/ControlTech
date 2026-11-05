@@ -76,6 +76,7 @@ async function obtenerFicha(id) {
       total: Number(mant.total || 0), abiertos: Number(mant.abiertos || 0), ultimo: mant.ultimo, recientes,
     },
     problemas_activos: problemas,
+    problemas_total: Number((await query('SELECT COUNT(*) AS n FROM alertas WHERE id_equipo = ?', [id]))[0].n),
   };
 }
 
@@ -252,4 +253,38 @@ async function actualizar(req, res) {
   res.json(await obtenerFicha(id));
 }
 
-module.exports = { listar, detalle, crear, actualizar };
+// Marca que deja la baja en historial_acciones: los datos iniciales la consultan para no
+// volver a crear una computadora que el administrador elimino.
+const marcaBaja = (identificador) => `Baja del equipo "${identificador}"`;
+
+// Elimina una computadora. Sus mantenimientos y alertas dependen de ella (claves foraneas),
+// por lo que se eliminan junto con el equipo; si tiene, hay que confirmarlo explicitamente
+// (confirmar_historial: true). Las instalaciones de software se borran en cascada.
+async function eliminar(req, res) {
+  const id = enteroPositivo(req.params.id, 'El equipo');
+  const eq = await obtenerEquipoAutorizado(req.user, id);
+  const [lab] = await query('SELECT nombre FROM laboratorios WHERE id_laboratorio = ?', [eq.id_laboratorio]);
+  const [m] = await query('SELECT COUNT(*) AS n, SUM(estado <> \'Completado\') AS abiertos FROM mantenimientos WHERE id_equipo = ?', [id]);
+  const [a] = await query('SELECT COUNT(*) AS n FROM alertas WHERE id_equipo = ?', [id]);
+  const mantenimientos = Number(m.n);
+  const alertas = Number(a.n);
+  if ((mantenimientos || alertas) && req.body?.confirmar_historial !== true) {
+    throw new HttpError(409,
+      `El equipo ${eq.identificador} tiene ${mantenimientos} mantenimiento(s) y ${alertas} problema(s) registrados, que se eliminarán con él. Confirmá la eliminación del historial.`,
+      { mantenimientos, mantenimientos_abiertos: Number(m.abiertos || 0), alertas });
+  }
+  const resultado = await withTransaction(async (conn) => {
+    const [[sw]] = await conn.query('SELECT COUNT(*) AS n FROM equipo_software WHERE id_equipo = ?', [id]);
+    await conn.query('DELETE FROM alertas WHERE id_equipo = ?', [id]);
+    await conn.query('DELETE FROM mantenimientos WHERE id_equipo = ?', [id]);
+    await conn.query('DELETE FROM equipo_software WHERE id_equipo = ?', [id]);
+    await conn.query('DELETE FROM equipos WHERE id_equipo = ?', [id]);
+    const partes = [`${marcaBaja(eq.identificador)} (serie ${eq.nro_serie}, ${eq.marca}${eq.modelo ? ` ${eq.modelo}` : ''}, ${lab?.nombre || 'sin laboratorio'}).`];
+    if (mantenimientos || alertas) partes.push(`Se eliminaron ${mantenimientos} mantenimiento(s) y ${alertas} problema(s) registrados.`);
+    await registrarAccion(conn, { idUsuario: req.user.id, accion: 'Eliminar', entidad: 'Equipo', idRegistro: id, detalle: partes.join(' ') });
+    return { software: Number(sw.n) };
+  });
+  res.json({ id_equipo: id, identificador: eq.identificador, mantenimientos_eliminados: mantenimientos, problemas_eliminados: alertas, software_desinstalado: resultado.software });
+}
+
+module.exports = { listar, detalle, crear, actualizar, eliminar, marcaBaja };

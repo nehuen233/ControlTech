@@ -170,6 +170,12 @@ async function asegurarDatosIniciales({ reemplazarDemo = true } = {}) {
       "SELECT u.id_usuario FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE r.nombre_rol = 'ADMINISTRADOR' ORDER BY u.id_usuario LIMIT 1",
     );
 
+    // Computadoras que el administrador elimino: no se vuelven a crear.
+    const [bajas] = await conn.query(
+      "SELECT detalle FROM historial_acciones WHERE entidad = 'Equipo' AND accion = 'Eliminar' AND detalle LIKE 'Baja del equipo %'",
+    );
+    const eliminados = new Set(bajas.map((b) => /^Baja del equipo "([^"]+)"/.exec(b.detalle)?.[1]).filter(Boolean));
+
     for (const p of PERFILES) {
       const [[lab]] = await conn.query('SELECT id_laboratorio, capacidad_equipos FROM laboratorios WHERE nombre = ? ORDER BY id_laboratorio LIMIT 1', [p.laboratorio]);
       if (!lab) continue;
@@ -181,6 +187,7 @@ async function asegurarDatosIniciales({ reemplazarDemo = true } = {}) {
       let ocupados = delLab.length;
 
       for (const e of semilla) {
+        if (eliminados.has(e.identificador)) continue;
         const [[existente]] = await conn.query('SELECT * FROM equipos WHERE identificador = ? OR nro_serie = ? LIMIT 1', [e.identificador, e.nro_serie]);
         if (!existente) {
           if (propios.length) { resumen.omitidos.push(`${p.laboratorio}: tiene equipos cargados a mano`); break; }

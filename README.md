@@ -121,7 +121,7 @@ Al iniciar, el backend verifica los datos de `backend/src/config/datosIniciales.
 
 Cada laboratorio tiene su propio equipamiento, cantidad, estados y software (en `CONTROL TECH INSERTS.sql` las 12 computadoras eran idénticas en todos los laboratorios). Reglas:
 
-- Laboratorios y software se identifican por nombre; computadoras por identificador y número de serie. **Nada se duplica ni se borra.**
+- Laboratorios y software se identifican por nombre; computadoras por identificador y número de serie. **Nada se duplica ni se borra**, y no se vuelven a crear laboratorios ni computadoras que el administrador eliminó.
 - Las computadoras de un laboratorio solo se cargan si ese laboratorio no tiene equipos cargados a mano.
 - Las computadoras de demostración anteriores (las idénticas del script) se actualizan con los datos de su laboratorio **solo si nadie las modificó**, conservando su id: sus mantenimientos, alertas e historial siguen vinculados. Si se les cambió el software, se conserva ese software.
 - El administrador puede crear más laboratorios o eliminarlos (un laboratorio inicial eliminado no se vuelve a crear). El Laboratorio 4-4 ya no forma parte de los datos iniciales: `npm run db:cargar` lo marca **Inactivo** sin borrar sus equipos ni su historial (se ve con "Mostrar laboratorios inactivos").
@@ -149,6 +149,11 @@ Cada laboratorio tiene su propio equipamiento, cantidad, estados y software (en 
 - Ficha completa de cada equipo: datos generales, especificaciones, responsable, software instalado con su licencia (`equipo_software`, `software`, `licencias`), resumen de mantenimientos y problemas activos.
 - **Alta y edición** para el administrador y los roles de gestión (Técnico, Encargado, Docente de laboratorio) dentro de sus laboratorios. Se valida: identificador y número de serie únicos, laboratorio activo y con capacidad disponible, y responsable asignado al laboratorio del equipo.
 - Los docentes consultan la ficha pero no modifican equipos.
+- **Eliminar equipo** (solo el administrador, desde la lista de Equipos o la ficha):
+  - Los mantenimientos y problemas registrados de la computadora dependen de ella en la base (claves foráneas), así que **se eliminan junto con el equipo**; si tiene, la confirmación muestra cuántos y la API exige `confirmar_historial: true`.
+  - También se quita el registro de su software instalado.
+  - La baja queda en el historial de acciones (identificador, serie, modelo, laboratorio y lo eliminado), y una computadora de los datos iniciales eliminada **no se vuelve a crear** al reiniciar.
+  - Para conservar el historial, conviene marcarla *Fuera de servicio* desde Editar en lugar de eliminarla.
 
 ## Sección Mantenimientos (unificada)
 
@@ -186,6 +191,7 @@ Correspondencia con las tablas existentes:
 | POST / PUT / DELETE | `/api/laboratorios/:id/software`, `/api/laboratorios/:id/software/:idSoftware` | gestión, en sus laboratorios |
 | GET | `/api/equipos`, `/api/equipos/:id`, `/api/software` | autenticado (filtrado por laboratorio) |
 | POST / PUT | `/api/equipos`, `/api/equipos/:id` | gestión, en sus laboratorios |
+| DELETE | `/api/equipos/:id` | administrador |
 | GET | `/api/mantenimientos/resumen` | autenticado |
 | GET | `/api/mantenimientos/equipos-con-problemas` | autenticado |
 | GET | `/api/mantenimientos/historial/:idEquipo` | autenticado |
