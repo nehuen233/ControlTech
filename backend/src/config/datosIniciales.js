@@ -13,6 +13,7 @@
 //     se actualizan con los datos nuevos SOLO si nadie las modifico: conservan su id,
 //     por lo que sus mantenimientos, alertas e historial siguen vinculados.
 const { withTransaction } = require('./db');
+const { capacidadEfectiva } = require('../utils/capacidad');
 const { asegurarLaboratoriosIniciales } = require('./laboratoriosIniciales');
 const demoOriginal = require('./equiposDemoOriginales.json').equipos;
 
@@ -191,7 +192,7 @@ async function asegurarDatosIniciales({ reemplazarDemo = true } = {}) {
         const [[existente]] = await conn.query('SELECT * FROM equipos WHERE identificador = ? OR nro_serie = ? LIMIT 1', [e.identificador, e.nro_serie]);
         if (!existente) {
           if (propios.length) { resumen.omitidos.push(`${p.laboratorio}: tiene equipos cargados a mano`); break; }
-          if (lab.capacidad_equipos != null && ocupados >= lab.capacidad_equipos) { resumen.omitidos.push(`${p.laboratorio}: capacidad completa`); break; }
+          if (ocupados >= capacidadEfectiva(lab.capacidad_equipos)) { resumen.omitidos.push(`${p.laboratorio}: capacidad completa`); break; }
           const [r] = await conn.query('INSERT INTO equipos SET ?', [{
             identificador: e.identificador, nro_serie: e.nro_serie, tipo: e.tipo, marca: e.marca, modelo: e.modelo,
             procesador: e.procesador, ram: e.ram, almacenamiento: e.almacenamiento, estado: e.estado,

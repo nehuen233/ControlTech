@@ -4,6 +4,11 @@ import { useAuth } from '../AuthContext.jsx'
 import { Alerta, Badge, Cargando, Modal } from '../components/ui.jsx'
 import LaboratorioDetalle from './LaboratorioDetalle.jsx'
 
+// Capacidad permitida por laboratorio (la misma regla valida el backend).
+export const CAPACIDAD_MIN = 10
+export const CAPACIDAD_MAX = 15
+const capacidadEfectiva = (c) => (c == null ? CAPACIDAD_MAX : c)
+
 // #/laboratorios/3 abre la pagina del laboratorio 3.
 const idDesdeHash = () => window.location.hash.match(/^#\/laboratorios\/(\d+)/)?.[1] || null
 
@@ -138,7 +143,7 @@ function FormLaboratorio({ lab, onClose, onGuardado }) {
     edificio: lab?.edificio || '',
     piso: lab?.piso || '',
     ubicacion: lab?.ubicacion || '',
-    capacidad_equipos: lab?.capacidad_equipos ?? '',
+    capacidad_equipos: lab ? (lab.capacidad_equipos ?? '') : String(CAPACIDAD_MAX),
     estado: lab?.estado || 'Activo',
     codigo_acceso: lab?.codigo_acceso || '',
   })
@@ -149,8 +154,20 @@ function FormLaboratorio({ lab, onClose, onGuardado }) {
   const submit = async (e) => {
     e.preventDefault()
     setError('')
+    const capacidad = Number(f.capacidad_equipos)
+    const cambiaCapacidad = !editando || String(f.capacidad_equipos) !== String(lab.capacidad_equipos ?? '')
+    if (cambiaCapacidad) {
+      if (f.capacidad_equipos === '' || !Number.isInteger(capacidad) || capacidad < CAPACIDAD_MIN || capacidad > CAPACIDAD_MAX) {
+        return setError(`La capacidad del laboratorio debe ser un número entero entre ${CAPACIDAD_MIN} y ${CAPACIDAD_MAX} equipos.`)
+      }
+      if (editando && capacidad < lab.total_equipos) {
+        return setError(`La capacidad no puede ser menor a los ${lab.total_equipos} equipos registrados en el laboratorio.`)
+      }
+    }
     setEnviando(true)
-    const body = { ...f, capacidad_equipos: f.capacidad_equipos === '' ? null : Number(f.capacidad_equipos) }
+    const body = { ...f, capacidad_equipos: capacidad }
+    // Al editar se envia la capacidad solo si cambio (los laboratorios antiguos pueden tener otra).
+    if (!cambiaCapacidad) delete body.capacidad_equipos
     try {
       if (editando) await api(`/laboratorios/${lab.id_laboratorio}`, { method: 'PUT', body })
       else await api('/laboratorios', { method: 'POST', body })
@@ -163,7 +180,7 @@ function FormLaboratorio({ lab, onClose, onGuardado }) {
 
   return (
     <Modal titulo={editando ? `Editar ${lab.nombre}` : 'Nuevo laboratorio'} onClose={onClose}>
-      <form className="form" onSubmit={submit}>
+      <form className="form" onSubmit={submit} noValidate>
         <Alerta>{error}</Alerta>
         <label>Nombre<input value={f.nombre} onChange={set('nombre')} maxLength={100} required placeholder="Ej.: Laboratorio 5-3" /></label>
         <label>Descripción<textarea value={f.descripcion} onChange={set('descripcion')} rows={2} /></label>
@@ -173,7 +190,11 @@ function FormLaboratorio({ lab, onClose, onGuardado }) {
           <label>Ubicación<input value={f.ubicacion} onChange={set('ubicacion')} maxLength={150} /></label>
         </div>
         <div className="form-fila">
-          <label>Capacidad de equipos<input type="number" min={editando ? lab.total_equipos : 0} step="1" value={f.capacidad_equipos} onChange={set('capacidad_equipos')} /></label>
+          <label>Capacidad de equipos
+            <input type="number" min={Math.max(CAPACIDAD_MIN, editando ? lab.total_equipos : 0)} max={CAPACIDAD_MAX} step="1" required
+              value={f.capacidad_equipos} onChange={set('capacidad_equipos')} aria-describedby="ayuda-capacidad" />
+            <span id="ayuda-capacidad" className="ayuda">Entre {CAPACIDAD_MIN} y {CAPACIDAD_MAX} equipos{editando && lab.total_equipos > CAPACIDAD_MIN ? ` · tiene ${lab.total_equipos} registrados` : ''}</span>
+          </label>
           <label>Estado
             <select value={f.estado} onChange={set('estado')}><option>Activo</option><option>Inactivo</option></select>
           </label>
@@ -207,7 +228,7 @@ export function EliminarLaboratorio({ lab, onClose, onEliminado }) {
       .catch((e) => setError(e.message))
   }, [lab.id_laboratorio])
 
-  const libres = (l) => (l.capacidad_equipos == null ? Infinity : l.capacidad_equipos - l.total_equipos)
+  const libres = (l) => capacidadEfectiva(l.capacidad_equipos) - l.total_equipos
   const equipos = detalle?.total_equipos || 0
   const usuarios = detalle ? detalle.usuarios.filter((u) => u.nombre_rol !== 'ADMINISTRADOR') : []
 
@@ -242,14 +263,14 @@ export function EliminarLaboratorio({ lab, onClose, onEliminado }) {
                   <option value="">Elegí un laboratorio</option>
                   {destinos.map((l) => (
                     <option key={l.id_laboratorio} value={l.id_laboratorio} disabled={libres(l) < equipos}>
-                      {l.nombre} {l.capacidad_equipos != null ? `(${l.total_equipos}/${l.capacidad_equipos}${libres(l) < equipos ? ' · sin lugar' : ''})` : ''}
+                      {l.nombre} ({l.total_equipos}/{capacidadEfectiva(l.capacidad_equipos)}{libres(l) < equipos ? ' · sin lugar' : ''})
                     </option>
                   ))}
                 </select>
               </label>
             )}
             {equipos > 0 && destinos.every((l) => libres(l) < equipos) && (
-              <p className="texto-suave chico">Ningún laboratorio activo tiene lugar para {equipos} computadoras. Aumentá la capacidad de alguno (Editar) antes de eliminar este.</p>
+              <p className="texto-suave chico">Ningún laboratorio activo tiene lugar para {equipos} computadoras (cada laboratorio admite hasta {CAPACIDAD_MAX}). Trasladá o eliminá computadoras de este laboratorio antes de eliminarlo.</p>
             )}
             <label className="check"><input type="checkbox" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} /> Entiendo que el laboratorio se elimina definitivamente</label>
             <div className="form-acciones">

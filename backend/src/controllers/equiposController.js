@@ -4,6 +4,7 @@ const { query, withTransaction } = require('../config/db');
 const { HttpError } = require('../utils/httpError');
 const { laboratoriosPermitidos, filtroLaboratorios, verificarAccesoLaboratorio, obtenerEquipoAutorizado } = require('../utils/acceso');
 const { registrarAccion } = require('../utils/historial');
+const { capacidadEfectiva } = require('../utils/capacidad');
 const { ESTADOS_EQUIPO, enumOpcional, texto, enteroPositivo, fechaValida } = require('../utils/validacion');
 
 const LIMITES = {
@@ -160,8 +161,9 @@ async function validarReferencias(user, { idLab, validarLab, idResponsable, soft
     if (!lab) throw new HttpError(400, 'El laboratorio indicado no existe.');
     await verificarAccesoLaboratorio(user, lab.id_laboratorio);
     if (lab.estado !== 'Activo') throw new HttpError(400, `El ${lab.nombre} está inactivo; no se le pueden asignar equipos.`);
-    if (lab.capacidad_equipos != null && Number(lab.ocupados) >= lab.capacidad_equipos) {
-      throw new HttpError(409, `El ${lab.nombre} alcanzó su capacidad máxima (${lab.capacidad_equipos} equipos).`);
+    const capacidad = capacidadEfectiva(lab.capacidad_equipos);
+    if (Number(lab.ocupados) >= capacidad) {
+      throw new HttpError(409, `El ${lab.nombre} alcanzó su capacidad máxima (${capacidad} equipos).`);
     }
   }
   if (idResponsable && !(await asignadoAlLaboratorio(idResponsable, idLab))) {

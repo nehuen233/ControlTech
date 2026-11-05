@@ -142,7 +142,8 @@ Cada laboratorio tiene su propio equipamiento, cantidad, estados y software (en 
   - **Editar**: cambiar en qué computadoras está instalado; los datos y la licencia (comunes a todos los laboratorios) solo los modifica el administrador.
   - **Eliminar**: lo desinstala de las computadoras de ese laboratorio; el software sigue en el catálogo y en los demás laboratorios.
   - Lo gestionan el administrador y los roles de gestión en sus laboratorios; los docentes lo consultan sin ver las claves.
-- **Alta y edición solo para el administrador**, con validación de nombre único y de capacidad (no puede quedar por debajo de los equipos registrados). El código de acceso solo lo ve el administrador.
+- **Alta y edición solo para el administrador**, con validación de nombre único y de capacidad.
+- **Capacidad: entre 10 y 15 computadoras** (15 por defecto). Es obligatoria al crear un laboratorio, se valida en el backend al crear y al cambiarla, y no puede quedar por debajo de los equipos registrados. Los laboratorios antiguos con otra capacidad se pueden seguir editando sin tocarla; los que no tienen capacidad cargada admiten hasta 15 computadoras. El código de acceso solo lo ve el administrador.
 
 ## Información de equipos
 

@@ -5,6 +5,7 @@ const { ROLES, etiquetaRol } = require('../utils/roles');
 const { laboratoriosPermitidos, filtroLaboratorios, verificarAccesoLaboratorio } = require('../utils/acceso');
 const { registrarAccion } = require('../utils/historial');
 const { texto, enteroPositivo } = require('../utils/validacion');
+const { MENSAJE_RANGO, CAPACIDAD_MAX, capacidadEfectiva, capacidadValida } = require('../utils/capacidad');
 const { asegurarDatosUnaVez } = require('../config/datosIniciales');
 
 const ESTADOS_LAB = ['Activo', 'Inactivo'];
@@ -120,13 +121,12 @@ function leerCampos(body, parcial) {
   for (const [k, max] of Object.entries(LIMITES)) {
     if (out[k] && out[k].length > max) errores.push(`El campo ${k.replace('_', ' ')} admite hasta ${max} caracteres.`);
   }
-  if (presente('capacidad_equipos')) {
-    if (body.capacidad_equipos === null || body.capacidad_equipos === '') out.capacidad_equipos = null;
-    else {
-      const c = Number(body.capacidad_equipos);
-      if (!Number.isInteger(c) || c < 0 || c > 10000) errores.push('La capacidad debe ser un número entero mayor o igual a 0.');
-      else out.capacidad_equipos = c;
-    }
+  // Obligatoria al crear; al editar, solo se valida si se envia.
+  if (!parcial || presente('capacidad_equipos')) {
+    const v = body.capacidad_equipos;
+    const c = v === null || v === undefined || v === '' ? NaN : Number(v);
+    if (!capacidadValida(c)) errores.push(MENSAJE_RANGO);
+    else out.capacidad_equipos = c;
   }
   if (!parcial || presente('estado')) {
     const e = body.estado === undefined || body.estado === '' ? (parcial ? undefined : 'Activo') : body.estado;
@@ -173,7 +173,9 @@ async function actualizar(req, res) {
   if (campos.nombre) await verificarNombreUnico(campos.nombre, id);
   const total = Number(actual.total_equipos || 0);
   if (campos.capacidad_equipos != null && campos.capacidad_equipos < total) {
-    throw new HttpError(400, `La capacidad no puede ser menor a los ${total} equipos registrados en el laboratorio.`);
+    throw new HttpError(400, total > CAPACIDAD_MAX
+      ? `El laboratorio tiene ${total} equipos registrados, más que el máximo permitido (${CAPACIDAD_MAX}). Trasladá o eliminá equipos antes de cambiar su capacidad.`
+      : `La capacidad no puede ser menor a los ${total} equipos registrados en el laboratorio.`);
   }
   await withTransaction(async (conn) => {
     await conn.query('UPDATE laboratorios SET ? WHERE id_laboratorio = ?', [campos, id]);
@@ -206,9 +208,9 @@ async function eliminar(req, res) {
     if (idDestino === id) throw new HttpError(400, 'El laboratorio de destino debe ser otro.');
     destino = await obtener(idDestino);
     if (destino.estado !== 'Activo') throw new HttpError(400, `El ${destino.nombre} está inactivo: elegí un laboratorio activo.`);
-    const libres = destino.capacidad_equipos == null ? Infinity : destino.capacidad_equipos - Number(destino.total_equipos || 0);
+    const libres = capacidadEfectiva(destino.capacidad_equipos) - Number(destino.total_equipos || 0);
     if (total > libres) {
-      throw new HttpError(409, `El ${destino.nombre} solo tiene lugar para ${Math.max(libres, 0)} computadora(s) más y hay que mover ${total}. Elegí otro laboratorio o aumentá su capacidad.`);
+      throw new HttpError(409, `El ${destino.nombre} solo tiene lugar para ${Math.max(libres, 0)} computadora(s) más y hay que mover ${total}. Elegí otro laboratorio (la capacidad máxima de un laboratorio es ${CAPACIDAD_MAX} equipos).`);
     }
   }
 

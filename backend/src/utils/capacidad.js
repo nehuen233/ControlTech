@@ -1,0 +1,12 @@
+// Capacidad de los laboratorios: entre 10 y 15 computadoras.
+const CAPACIDAD_MIN = 10;
+const CAPACIDAD_MAX = 15;
+
+const MENSAJE_RANGO = `La capacidad del laboratorio debe ser un número entero entre ${CAPACIDAD_MIN} y ${CAPACIDAD_MAX} equipos.`;
+
+// Laboratorios antiguos sin capacidad cargada: se aplica el maximo permitido.
+const capacidadEfectiva = (c) => (c == null ? CAPACIDAD_MAX : Number(c));
+
+const capacidadValida = (c) => Number.isInteger(c) && c >= CAPACIDAD_MIN && c <= CAPACIDAD_MAX;
+
+module.exports = { CAPACIDAD_MIN, CAPACIDAD_MAX, MENSAJE_RANGO, capacidadEfectiva, capacidadValida };
