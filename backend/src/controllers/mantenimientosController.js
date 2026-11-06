@@ -10,6 +10,15 @@ const { HttpError } = require('../utils/httpError');
 const { ROLES_GESTION_MANTENIMIENTO } = require('../utils/roles');
 const { laboratoriosPermitidos, filtroLaboratorios, obtenerEquipoAutorizado } = require('../utils/acceso');
 const { registrarAccion } = require('../utils/historial');
+// Carga diferida: alertasController depende de modulos que tambien usa este archivo.
+const alertas = () => require('./alertasController');
+
+// Avisa en tiempo real que esas alertas dejaron de estar activas.
+async function avisarResueltas(ids) {
+  if (!ids?.length) return;
+  const lista = (await Promise.all(ids.map((id) => alertas().obtenerAlerta(id)))).filter(Boolean);
+  alertas().notificarResueltas(lista);
+}
 const {
   ESTADOS_EQUIPO, ESTADOS_PROBLEMA_EQUIPO, TIPOS_MANTENIMIENTO, ESTADOS_MANTENIMIENTO, SEVERIDADES,
   texto, enteroPositivo, fechaValida, enumOpcional,
@@ -247,7 +256,9 @@ function leerCampos(body, parcial) {
   return { campos: out, estadoEquipo, resolverProblemas: body.resolver_problemas === true };
 }
 
+// Devuelve los ids de las alertas que resolvio (para avisarlo en tiempo real).
 async function aplicarEfectosEnEquipo(conn, user, idEquipo, { estadoEquipo, resolverProblemas, estado }) {
+  const resueltas = [];
   if (estadoEquipo) {
     await conn.query('UPDATE equipos SET estado = ? WHERE id_equipo = ?', [estadoEquipo, idEquipo]);
     await registrarAccion(conn, {
@@ -266,8 +277,10 @@ async function aplicarEfectosEnEquipo(conn, user, idEquipo, { estadoEquipo, reso
         idUsuario: user.id, accion: 'Modificar', entidad: 'Alerta', idRegistro: a.id_alerta,
         detalle: 'Problema marcado como resuelto al completar el mantenimiento.',
       });
+      resueltas.push(a.id_alerta);
     }
   }
+  return resueltas;
 }
 
 async function crear(req, res) {
@@ -283,6 +296,7 @@ async function crear(req, res) {
     throw new HttpError(409, `Ya existe un mantenimiento idéntico para este equipo (N.º ${dup[0].id_mantenimiento}).`);
   }
 
+  let resueltas = [];
   const id = await withTransaction(async (conn) => {
     const [r] = await conn.query(
       `INSERT INTO mantenimientos (id_equipo, id_usuario, fecha_mantenimiento, tipo, detalle, costo, notas_adicionales, estado)
@@ -294,9 +308,10 @@ async function crear(req, res) {
       idUsuario: req.user.id, accion: 'Crear', entidad: 'Mantenimiento', idRegistro: r.insertId,
       detalle: `Mantenimiento ${campos.tipo.toLowerCase()} registrado (${campos.estado}).`,
     });
-    await aplicarEfectosEnEquipo(conn, req.user, idEquipo, { estadoEquipo, resolverProblemas, estado: campos.estado });
+    resueltas = await aplicarEfectosEnEquipo(conn, req.user, idEquipo, { estadoEquipo, resolverProblemas, estado: campos.estado });
     return r.insertId;
   });
+  await avisarResueltas(resueltas);
   res.status(201).json(await obtenerMantenimientoAutorizado(req.user, id));
 }
 
@@ -320,6 +335,7 @@ async function actualizar(req, res) {
     if (dup.length) throw new HttpError(409, `Los cambios duplicarían el mantenimiento N.º ${dup[0].id_mantenimiento}.`);
   }
 
+  let resueltas = [];
   await withTransaction(async (conn) => {
     if (Object.keys(campos).length) {
       await conn.query('UPDATE mantenimientos SET ? WHERE id_mantenimiento = ?', [campos, id]);
@@ -329,8 +345,9 @@ async function actualizar(req, res) {
         detalle: `Actualización (${cambios.join(', ')}).`,
       });
     }
-    await aplicarEfectosEnEquipo(conn, req.user, actual.id_equipo, { estadoEquipo, resolverProblemas, estado: final.estado });
+    resueltas = await aplicarEfectosEnEquipo(conn, req.user, actual.id_equipo, { estadoEquipo, resolverProblemas, estado: final.estado });
   });
+  await avisarResueltas(resueltas);
   res.json(await obtenerMantenimientoAutorizado(req.user, id));
 }
 
@@ -386,6 +403,7 @@ async function reportarProblema(req, res) {
     return r.insertId;
   });
   const [alerta] = await query('SELECT * FROM alertas WHERE id_alerta = ?', [id]);
+  await alertas().notificarAlerta(id);
   res.status(201).json(alerta);
 }
 
@@ -405,6 +423,7 @@ async function resolverProblema(req, res) {
     await aplicarEfectosEnEquipo(conn, req.user, rows[0].id_equipo, { estadoEquipo });
   });
   const [alerta] = await query('SELECT * FROM alertas WHERE id_alerta = ?', [id]);
+  await avisarResueltas([id]);
   res.json(alerta);
 }
 

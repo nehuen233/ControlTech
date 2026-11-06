@@ -5,6 +5,7 @@ const { verificarContrasena } = require('../utils/password');
 const { etiquetaRol } = require('../utils/roles');
 const { laboratoriosPermitidos } = require('../utils/acceso');
 const { texto } = require('../utils/validacion');
+const { asegurarEsquemaUnaVez, colBloqueado } = require('../config/esquema');
 
 async function perfil(user) {
   const labs = await laboratoriosPermitidos(user);
@@ -16,8 +17,9 @@ async function login(req, res) {
   const contrasena = typeof req.body?.contrasena === 'string' ? req.body.contrasena : '';
   if (!email || !contrasena) throw new HttpError(400, 'Ingresá el email y la contraseña.');
 
+  await asegurarEsquemaUnaVez();
   const rows = await query(
-    `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.contrasena, r.nombre_rol
+    `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.contrasena, r.nombre_rol, ${colBloqueado()} AS bloqueado
        FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol
       WHERE LOWER(u.email) = ?`,
     [email],
@@ -25,6 +27,10 @@ async function login(req, res) {
   const u = rows[0];
   if (!u || !(await verificarContrasena(contrasena, u.contrasena))) {
     throw new HttpError(401, 'Email o contraseña incorrectos.');
+  }
+  // Se informa el bloqueo solo con la contraseña correcta (no revela cuentas a terceros).
+  if (Number(u.bloqueado)) {
+    throw new HttpError(403, 'Tu cuenta está bloqueada. Consultá con el administrador del sistema.', { codigo: 'CUENTA_BLOQUEADA' });
   }
   const user = { id: u.id_usuario, nombre: u.nombre, apellido: u.apellido, email: u.email, rol: u.nombre_rol };
   const token = jwt.sign({ sub: u.id_usuario }, process.env.JWT_SECRET, {

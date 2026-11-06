@@ -3,7 +3,7 @@ import { useAuth } from '../AuthContext.jsx'
 import { Alerta } from '../components/ui.jsx'
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, aviso } = useAuth()
   const [email, setEmail] = useState('')
   const [contrasena, setContrasena] = useState('')
   const [error, setError] = useState('')
@@ -31,6 +31,7 @@ export default function Login() {
         </div>
         <p className="texto-suave">Gestión de laboratorios, equipos y mantenimientos</p>
         <Alerta>{error}</Alerta>
+        {!error && aviso && <div className="alerta alerta-aviso" role="status">{aviso}</div>}
         <label>
           Email
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />

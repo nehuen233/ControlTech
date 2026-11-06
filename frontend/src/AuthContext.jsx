@@ -18,10 +18,13 @@ export const ROLES_REPORTE = [...ROLES_GESTION, ROLES.DOCENTE]
 export function AuthProvider({ children }) {
   const [usuario, setUsuario] = useState(null)
   const [cargando, setCargando] = useState(Boolean(getToken()))
+  // Motivo del ultimo cierre de sesion forzado (cuenta bloqueada o eliminada, sesion vencida).
+  const [aviso, setAviso] = useState('')
 
-  const logout = useCallback(() => {
+  const logout = useCallback((motivo) => {
     setToken(null)
     setUsuario(null)
+    setAviso(typeof motivo === 'string' ? motivo : '')
   }, [])
 
   useEffect(() => {
@@ -36,6 +39,7 @@ export function AuthProvider({ children }) {
   const login = async (email, contrasena) => {
     const d = await api('/auth/login', { method: 'POST', body: { email, contrasena } })
     setToken(d.token)
+    setAviso('')
     setUsuario(d.usuario)
   }
 
@@ -44,6 +48,7 @@ export function AuthProvider({ children }) {
     cargando,
     login,
     logout,
+    aviso,
     esAdmin: usuario?.rol === ROLES.ADMIN,
     puedeGestionar: ROLES_GESTION.includes(usuario?.rol),
     puedeReportar: ROLES_REPORTE.includes(usuario?.rol),

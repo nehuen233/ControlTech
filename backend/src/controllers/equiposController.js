@@ -275,6 +275,7 @@ async function eliminar(req, res) {
       `El equipo ${eq.identificador} tiene ${mantenimientos} mantenimiento(s) y ${alertas} problema(s) registrados, que se eliminarán con él. Confirmá la eliminación del historial.`,
       { mantenimientos, mantenimientos_abiertos: Number(m.abiertos || 0), alertas });
   }
+  const activas = await query("SELECT id_alerta FROM alertas WHERE id_equipo = ? AND estado = 'Activa'", [id]);
   const resultado = await withTransaction(async (conn) => {
     const [[sw]] = await conn.query('SELECT COUNT(*) AS n FROM equipo_software WHERE id_equipo = ?', [id]);
     await conn.query('DELETE FROM alertas WHERE id_equipo = ?', [id]);
@@ -286,6 +287,7 @@ async function eliminar(req, res) {
     await registrarAccion(conn, { idUsuario: req.user.id, accion: 'Eliminar', entidad: 'Equipo', idRegistro: id, detalle: partes.join(' ') });
     return { software: Number(sw.n) };
   });
+  require('./alertasController').notificarResueltas(activas.map((x) => ({ id_alerta: x.id_alerta, id_laboratorio: eq.id_laboratorio, equipo: eq.identificador })));
   res.json({ id_equipo: id, identificador: eq.identificador, mantenimientos_eliminados: mantenimientos, problemas_eliminados: alertas, software_desinstalado: resultado.software });
 }
 

@@ -20,9 +20,22 @@ export default function Mantenimientos() {
   const [vista, setVista] = useState('problemas')
   const [labs, setLabs] = useState([])
   const [equipos, setEquipos] = useState([])
-  const [filtros, setFiltros] = useState({ laboratorio: '', equipo: '', estado: '', tipo: '', categoria: '' })
+  // #/mantenimientos?equipo=5 (desde la campana de alertas) abre filtrado por ese equipo.
+  const equipoDesdeHash = () => new URLSearchParams(window.location.hash.split('?')[1] || '').get('equipo') || ''
+  const [filtros, setFiltros] = useState(() => ({ laboratorio: '', equipo: equipoDesdeHash(), estado: '', tipo: '', categoria: '' }))
   const [resumen, setResumen] = useState(null)
   const [recarga, setRecarga] = useState(0)
+  // Una alerta nueva o resuelta (en esta u otra ventana) recarga los datos de la pagina.
+  useEffect(() => {
+    const alCambiar = () => setRecarga((n) => n + 1)
+    const alNavegar = () => {
+      const eq = equipoDesdeHash()
+      if (eq) { setVista('problemas'); setFiltros((f) => ({ ...f, laboratorio: '', categoria: '', equipo: eq })) }
+    }
+    window.addEventListener('controltech:alertas', alCambiar)
+    window.addEventListener('hashchange', alNavegar)
+    return () => { window.removeEventListener('controltech:alertas', alCambiar); window.removeEventListener('hashchange', alNavegar) }
+  }, [])
   const [modal, setModal] = useState(null)
   const [aviso, setAviso] = useState('')
 
@@ -488,7 +501,7 @@ function FormEstado({ mantenimiento, onClose, onGuardado }) {
   )
 }
 
-function FormProblema({ equipos, puedeGestionar, equipoInicial, onClose, onGuardado }) {
+export function FormProblema({ equipos, puedeGestionar, equipoInicial, onClose, onGuardado }) {
   const [f, setF] = useState({ id_equipo: equipoInicial || '', titulo: '', descripcion: '', severidad: 'Media', fecha_limite: '', estado_equipo: '' })
   const { error, enviando, enviar } = useEnvio(onGuardado)
   const set = (k) => (e) => setF((v) => ({ ...v, [k]: e.target.value }))

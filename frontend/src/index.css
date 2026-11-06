@@ -239,3 +239,33 @@ tr:last-child td { border-bottom: 0; }
   .datos { grid-template-columns: repeat(2, 1fr); }
   .filtros label { min-width: 0; flex: 1 1 140px; }
 }
+
+/* Alertas de mantenimiento: campana, panel y avisos en vivo */
+.topbar h1 { margin-right: auto; }
+.campana { position: relative; }
+.btn-campana { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+.btn-campana:hover { background: var(--surface-2); }
+.btn-campana svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.btn-campana.con-alertas { border-color: var(--warn); color: var(--warn); }
+.contador-campana { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--warn); color: #fff; font-size: .72rem; font-weight: 700; display: grid; place-items: center; }
+.contador-campana.urgente { background: var(--danger); }
+.panel-alertas { position: absolute; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.18); z-index: 60; }
+.panel-alertas header, .panel-alertas footer { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .75rem 1rem; }
+.panel-alertas header { border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); }
+.panel-alertas footer { border-top: 1px solid var(--border); font-size: .88rem; font-weight: 600; }
+.panel-alertas ul { list-style: none; margin: 0; padding: 0; }
+.panel-alertas li a { display: flex; flex-direction: column; gap: .2rem; padding: .7rem 1rem; color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border); font-size: .9rem; }
+.panel-alertas li a:hover { background: var(--surface-2); }
+.estado-conexion { font-size: .74rem; font-weight: 600; color: var(--muted); display: inline-flex; align-items: center; gap: .3rem; }
+.estado-conexion::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.estado-conexion.ok { color: var(--ok); }
+.estado-conexion.ok::before { background: var(--ok); }
+.avisos { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: .6rem; z-index: 80; width: min(380px, calc(100vw - 32px)); }
+.aviso { display: flex; justify-content: space-between; gap: .75rem; padding: .8rem 1rem; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--info); box-shadow: 0 10px 30px rgba(0,0,0,.16); font-size: .9rem; animation: entra-aviso .2s ease-out; }
+.aviso-Alta, .aviso-Critica { border-left-color: var(--danger); }
+.aviso-Media { border-left-color: var(--warn); }
+@keyframes entra-aviso { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .aviso { animation: none; } }
+.alerta-aviso { background: var(--warn-soft); color: var(--warn); }
+.fila-bloqueada td { color: var(--muted); }
+.campo-busqueda { max-width: 320px; }

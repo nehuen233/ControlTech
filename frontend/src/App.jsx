@@ -7,6 +7,7 @@ import Equipos from './pages/Equipos.jsx'
 import Mantenimientos from './pages/Mantenimientos.jsx'
 import Usuarios from './pages/Usuarios.jsx'
 import { Cargando } from './components/ui.jsx'
+import { Campana } from './components/Alertas.jsx'
 
 // Navegacion principal. "Mantenimientos" reemplaza a las antiguas secciones separadas
 // de equipos con problemas y mantenimientos.
@@ -62,6 +63,7 @@ export default function App() {
         <header className="topbar">
           <button type="button" className="btn-menu" onClick={() => setMenuAbierto((v) => !v)} aria-label="Abrir menú">☰</button>
           <h1>{actual.titulo}</h1>
+          <Campana />
         </header>
         <main>
           <Pagina key={actual.id} />

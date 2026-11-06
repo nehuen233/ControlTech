@@ -4,6 +4,8 @@ const { hashContrasena } = require('../utils/password');
 const { ROLES, ROLES_ASIGNABLES, etiquetaRol, listaRolesAsignables } = require('../utils/roles');
 const { registrarAccion } = require('../utils/historial');
 const { texto, enteroPositivo } = require('../utils/validacion');
+const { estado: esquema, asegurarEsquemaUnaVez, colBloqueado } = require('../config/esquema');
+const { cerrarSesionesDe } = require('../utils/eventos');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -53,8 +55,12 @@ async function validarLaboratorios(lista) {
 }
 
 async function listar(req, res) {
+  await asegurarEsquemaUnaVez();
   const usuarios = await query(
-    `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.id_rol, r.nombre_rol,
+    `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.id_rol, r.nombre_rol, ${colBloqueado()} AS bloqueado,
+            (SELECT COUNT(*) FROM mantenimientos m WHERE m.id_usuario = u.id_usuario) AS mantenimientos,
+            (SELECT COUNT(*) FROM historial_acciones h WHERE h.id_usuario = u.id_usuario) AS acciones,
+            (SELECT COUNT(*) FROM reportes rp WHERE rp.id_usuario = u.id_usuario) AS reportes,
             GROUP_CONCAT(l.nombre ORDER BY l.nombre SEPARATOR ', ') AS laboratorios,
             GROUP_CONCAT(l.id_laboratorio ORDER BY l.nombre) AS ids_laboratorios
        FROM usuarios u
@@ -70,7 +76,73 @@ async function listar(req, res) {
     ids_laboratorios: u.ids_laboratorios ? u.ids_laboratorios.split(',').map(Number) : [],
     // Solo se pueden editar cuentas con roles asignables; el administrador queda protegido.
     editable: ROLES_ASIGNABLES.includes(u.nombre_rol),
+    bloqueado: Boolean(Number(u.bloqueado)),
+    mantenimientos: Number(u.mantenimientos), acciones: Number(u.acciones), reportes: Number(u.reportes),
+    protegido: u.nombre_rol === ROLES.ADMIN || u.id_usuario === req.user.id,
   })));
+  if (!esquema.bloqueo) res.setHeader('X-ControlTech-Aviso', 'bloqueo-no-disponible');
+}
+
+// Cuenta sobre la que el administrador puede actuar: nunca un administrador ni la propia.
+async function obtenerGestionable(req) {
+  const id = enteroPositivo(req.params.id, 'El usuario');
+  const [u] = await query(
+    'SELECT u.id_usuario, u.nombre, u.apellido, u.email, r.nombre_rol FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE u.id_usuario = ?',
+    [id],
+  );
+  if (!u) throw new HttpError(404, 'El usuario no existe.');
+  if (u.nombre_rol === ROLES.ADMIN || id === req.user.id) {
+    throw new HttpError(403, 'La cuenta del administrador no puede bloquearse ni eliminarse.');
+  }
+  return u;
+}
+
+// Bloquea o desbloquea una cuenta. Al bloquear se cierran sus sesiones abiertas.
+async function cambiarBloqueo(req, res) {
+  await asegurarEsquemaUnaVez();
+  if (!esquema.bloqueo) throw new HttpError(503, esquema.error || 'La función de bloqueo no está disponible.');
+  const u = await obtenerGestionable(req);
+  if (typeof req.body?.bloqueado !== 'boolean') throw new HttpError(400, 'Indicá si la cuenta se bloquea (true) o se desbloquea (false).');
+  const bloqueado = req.body.bloqueado;
+  await withTransaction(async (conn) => {
+    await conn.query('UPDATE usuarios SET bloqueado = ? WHERE id_usuario = ?', [bloqueado ? 1 : 0, u.id_usuario]);
+    await registrarAccion(conn, {
+      idUsuario: req.user.id, accion: 'Modificar', entidad: 'Usuario', idRegistro: u.id_usuario,
+      detalle: `${bloqueado ? 'Bloqueo' : 'Desbloqueo'} de la cuenta ${u.email}.`,
+    });
+  });
+  if (bloqueado) cerrarSesionesDe(u.id_usuario, 'Tu cuenta fue bloqueada por el administrador.');
+  res.json({ id_usuario: u.id_usuario, email: u.email, bloqueado });
+}
+
+// Elimina una cuenta. Sus mantenimientos, acciones y reportes dependen de ella (claves
+// foraneas): si tiene historial no se elimina y se propone bloquearla.
+async function eliminar(req, res) {
+  const u = await obtenerGestionable(req);
+  const [h] = await query(
+    `SELECT (SELECT COUNT(*) FROM mantenimientos WHERE id_usuario = ?) AS mantenimientos,
+            (SELECT COUNT(*) FROM historial_acciones WHERE id_usuario = ?) AS acciones,
+            (SELECT COUNT(*) FROM reportes WHERE id_usuario = ?) AS reportes`,
+    [u.id_usuario, u.id_usuario, u.id_usuario],
+  );
+  const conHistorial = Number(h.mantenimientos) + Number(h.acciones) + Number(h.reportes);
+  if (conHistorial) {
+    throw new HttpError(409,
+      `${u.nombre} ${u.apellido} tiene historial registrado (${h.mantenimientos} mantenimiento(s), ${h.acciones} acción(es), ${h.reportes} reporte(s)) y no puede eliminarse sin perderlo. Bloqueá la cuenta para que no pueda ingresar.`,
+      { mantenimientos: Number(h.mantenimientos), acciones: Number(h.acciones), reportes: Number(h.reportes) });
+  }
+  const r = await withTransaction(async (conn) => {
+    const [eq] = await conn.query('UPDATE equipos SET id_responsable = NULL WHERE id_responsable = ?', [u.id_usuario]);
+    await conn.query('DELETE FROM usuario_laboratorio WHERE id_usuario = ?', [u.id_usuario]);
+    await conn.query('DELETE FROM usuarios WHERE id_usuario = ?', [u.id_usuario]);
+    await registrarAccion(conn, {
+      idUsuario: req.user.id, accion: 'Eliminar', entidad: 'Usuario', idRegistro: u.id_usuario,
+      detalle: `Baja del usuario ${u.email} (${etiquetaRol(u.nombre_rol)}).${eq.affectedRows ? ` ${eq.affectedRows} equipo(s) quedaron sin responsable.` : ''}`,
+    });
+    return { equipos: eq.affectedRows };
+  });
+  cerrarSesionesDe(u.id_usuario, 'Tu cuenta fue eliminada por el administrador.');
+  res.json({ id_usuario: u.id_usuario, email: u.email, equipos_sin_responsable: r.equipos });
 }
 
 async function crear(req, res) {
@@ -149,4 +221,4 @@ async function actualizarRol(req, res) {
   res.json({ id_usuario: id, id_rol: rol.id_rol, nombre_rol: rol.nombre_rol, rolEtiqueta: etiquetaRol(rol.nombre_rol) });
 }
 
-module.exports = { asegurarRolesAsignables, rolesAsignables, listar, crear, actualizarRol };
+module.exports = { asegurarRolesAsignables, rolesAsignables, listar, crear, actualizarRol, cambiarBloqueo, eliminar };

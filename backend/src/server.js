@@ -21,12 +21,17 @@ const { pool } = require('./config/db');
 const { explicarErrorMySQL } = require('./config/diagnostico');
 const { asegurarRolesAsignables } = require('./controllers/usuariosController');
 const { asegurarDatosUnaVez } = require('./config/datosIniciales');
+const { asegurarEsquemaUnaVez } = require('./config/esquema');
+const { iniciarVerificacionPeriodica } = require('./controllers/alertasController');
 
 const PORT = Number(process.env.PORT || 4000);
 
 pool.query('SELECT 1')
   .then(async () => {
     console.log(`Conectado a MySQL (${process.env.DB_NAME || 'controltecchh'})`);
+    const esq = await asegurarEsquemaUnaVez();
+    if (esq.error) console.warn(`AVISO ${esq.error}`);
+    else console.log('Bloqueo de usuarios disponible.');
     const creados = await asegurarRolesAsignables().catch((err) => {
       console.warn(`No se pudieron verificar los roles asignables: ${err.message}`);
       return 0;
@@ -44,3 +49,6 @@ pool.query('SELECT 1')
   .catch((err) => console.error(`No se pudo conectar a MySQL. ${explicarErrorMySQL(err)}\nEjecutá "npm run db:check" para diagnosticar.`));
 
 app.listen(PORT, () => console.log(`API ControlTech escuchando en http://localhost:${PORT}/api`));
+
+// Alertas automaticas de mantenimiento (preventivo vencido, programado sin realizar).
+if (process.env.ALERTAS_AUTOMATICAS !== 'no') iniciarVerificacionPeriodica();

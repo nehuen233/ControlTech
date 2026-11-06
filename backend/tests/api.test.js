@@ -41,6 +41,45 @@ async function llenar(idLab, n, prefijo) {
   const filas = Array.from({ length: n }, (_, i) => [`${prefijo}-${i + 1}-${SUFIJO}`.toUpperCase(), `S-${prefijo}-${i + 1}-${SUFIJO}`.toUpperCase(), 'HP', idLab]);
   await db.query('INSERT INTO equipos (identificador, nro_serie, marca, id_laboratorio) VALUES ?', [filas]);
 }
+// Escucha los eventos en tiempo real (SSE) de una sesion, como lo hace una ventana abierta.
+function escuchar(token) {
+  const ctrl = new AbortController();
+  const eventos = [];
+  (async () => {
+    try {
+      const res = await fetch(`${API}/alertas/stream`, { headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal });
+      const lector = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await lector.read();
+        if (done) break;
+        buf += value;
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const bloque = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          let ev = 'message';
+          let d = '';
+          for (const l of bloque.split('\n')) {
+            if (l.startsWith('event:')) ev = l.slice(6).trim();
+            else if (l.startsWith('data:')) d += l.slice(5).trim();
+          }
+          if (d) eventos.push({ ev, datos: JSON.parse(d) });
+        }
+      }
+    } catch { /* conexion cerrada */ }
+  })();
+  return { eventos, cerrar: () => ctrl.abort() };
+}
+async function esperar(fn, ms = 4000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const r = fn();
+    if (r) return r;
+    await new Promise((ok) => setTimeout(ok, 50));
+  }
+  return fn();
+}
 const idRol = async (nombre) => (await db.query('SELECT id_rol FROM roles WHERE nombre_rol = ?', [nombre]))[0][0].id_rol;
 const idLab = async (nombre) => (await db.query('SELECT id_laboratorio FROM laboratorios WHERE nombre = ?', [nombre]))[0][0].id_laboratorio;
 const equipo = async (ident) => (await db.query('SELECT * FROM equipos WHERE identificador = ?', [ident]))[0][0];
@@ -775,6 +814,176 @@ test('eliminar equipos: solo el administrador y con confirmación si tienen hist
   assert.match(h.detalle, /Se eliminaron 1 mantenimiento\(s\) y 1 problema\(s\)/);
   const det = await call(`/laboratorios/${idLabB}`, { token: admin.token });
   assert.equal(det.data.total_equipos, 0);
+});
+
+// ---------------- Bloqueo y eliminacion de usuarios ----------------
+async function usuarioNuevo(prefijo, labsIds) {
+  const email = `${prefijo}.${SUFIJO}@test.controltech`;
+  const r = await call('/usuarios', { method: 'POST', token: admin.token, body: { nombre: 'Ulises', apellido: prefijo, email, contrasena: 'Clave2026x', id_rol: await idRol('DOCENTE'), laboratorios: labsIds } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  return { ...r.data, email, clave: 'Clave2026x' };
+}
+
+test('bloquear un usuario: no ingresa y su sesión abierta se cierra en el momento', async () => {
+  const u = await usuarioNuevo('bloqueo', [await idLab('Laboratorio 4-1')]);
+  const s = await login(u.email, u.clave);
+  const ventana = escuchar(s.token);
+  assert.ok(await esperar(() => ventana.eventos.some((e) => e.ev === 'conectado')), 'la ventana del usuario está conectada');
+
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  assert.equal((await call(`/usuarios/${u.id_usuario}/bloqueo`, { method: 'PATCH', token: maria.token, body: { bloqueado: true } })).status, 403);
+  assert.equal((await call(`/usuarios/${u.id_usuario}/bloqueo`, { method: 'PATCH', token: admin.token, body: { bloqueado: 'si' } })).status, 400);
+  assert.equal((await call(`/usuarios/${adminAntes.id_usuario}/bloqueo`, { method: 'PATCH', token: admin.token, body: { bloqueado: true } })).status, 403, 'el administrador no se bloquea');
+
+  const b = await call(`/usuarios/${u.id_usuario}/bloqueo`, { method: 'PATCH', token: admin.token, body: { bloqueado: true } });
+  assert.equal(b.status, 200, JSON.stringify(b.data));
+  const aviso = await esperar(() => ventana.eventos.find((e) => e.ev === 'sesion'));
+  assert.ok(aviso, 'la ventana abierta recibe el cierre de sesión');
+  assert.match(aviso.datos.motivo, /bloqueada/);
+  ventana.cerrar();
+
+  const peticion = await call('/laboratorios', { token: s.token });
+  assert.equal(peticion.status, 401);
+  assert.match(peticion.data.error, /bloqueada/);
+  const otraVez = await call('/auth/login', { method: 'POST', body: { email: u.email, contrasena: u.clave } });
+  assert.equal(otraVez.status, 403);
+  assert.match(otraVez.data.error, /Tu cuenta está bloqueada/);
+  const malaClave = await call('/auth/login', { method: 'POST', body: { email: u.email, contrasena: 'otra-cosa' } });
+  assert.equal(malaClave.status, 401, 'con contraseña incorrecta no se revela el bloqueo');
+  const lista = await call('/usuarios', { token: admin.token });
+  assert.equal(lista.data.find((x) => x.id_usuario === u.id_usuario).bloqueado, true);
+
+  const d = await call(`/usuarios/${u.id_usuario}/bloqueo`, { method: 'PATCH', token: admin.token, body: { bloqueado: false } });
+  assert.equal(d.status, 200);
+  assert.equal((await login(u.email, u.clave)).usuario.email, u.email, 'desbloqueado vuelve a ingresar');
+});
+
+test('eliminar usuarios: sin historial se eliminan; con historial se propone bloquear', async () => {
+  const labU = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Usuarios ${SUFIJO}`, capacidad_equipos: CMIN } });
+  const u = await usuarioNuevo('baja', [labU.data.id_laboratorio]);
+  const eq = await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-RESP-${SUFIJO}`, nro_serie: `SRESP-${SUFIJO}`, marca: 'HP', id_laboratorio: labU.data.id_laboratorio, id_responsable: u.id_usuario } });
+  assert.equal(eq.status, 201, JSON.stringify(eq.data));
+  const s = await login(u.email, u.clave);
+  const ventana = escuchar(s.token);
+  await esperar(() => ventana.eventos.some((e) => e.ev === 'conectado'));
+
+  assert.equal((await call(`/usuarios/${adminAntes.id_usuario}`, { method: 'DELETE', token: admin.token })).status, 403);
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  assert.equal((await call(`/usuarios/${u.id_usuario}`, { method: 'DELETE', token: maria.token })).status, 403);
+
+  const r = await call(`/usuarios/${u.id_usuario}`, { method: 'DELETE', token: admin.token });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.equipos_sin_responsable, 1);
+  const [[q]] = await db.query('SELECT COUNT(*) AS n FROM usuarios WHERE id_usuario = ?', [u.id_usuario]);
+  assert.equal(Number(q.n), 0);
+  const [[ul]] = await db.query('SELECT COUNT(*) AS n FROM usuario_laboratorio WHERE id_usuario = ?', [u.id_usuario]);
+  assert.equal(Number(ul.n), 0);
+  const [[e]] = await db.query('SELECT id_responsable FROM equipos WHERE id_equipo = ?', [eq.data.id_equipo]);
+  assert.equal(e.id_responsable, null);
+  assert.ok(await esperar(() => ventana.eventos.find((x) => x.ev === 'sesion')), 'su ventana abierta se cierra');
+  ventana.cerrar();
+  assert.equal((await call('/auth/login', { method: 'POST', body: { email: u.email, contrasena: u.clave } })).status, 401);
+  const [[h]] = await db.query("SELECT detalle FROM historial_acciones WHERE entidad = 'Usuario' AND accion = 'Eliminar' AND id_registro = ?", [u.id_usuario]);
+  assert.match(h.detalle, /^Baja del usuario baja\./);
+
+  // Con historial: el técnico registró un mantenimiento en una prueba anterior.
+  const [[tec]] = await db.query('SELECT id_usuario FROM usuarios WHERE email = ?', [`tecnico.${SUFIJO}@test.controltech`]);
+  const conHist = await call(`/usuarios/${tec.id_usuario}`, { method: 'DELETE', token: admin.token });
+  assert.equal(conHist.status, 409);
+  assert.match(conHist.data.error, /Bloqueá la cuenta/);
+  assert.ok(conHist.data.detalles.mantenimientos >= 1);
+  const [[sigue]] = await db.query('SELECT COUNT(*) AS n FROM usuarios WHERE id_usuario = ?', [tec.id_usuario]);
+  assert.equal(Number(sigue.n), 1, 'no se eliminó');
+});
+
+// ---------------- Alertas de mantenimiento en tiempo real ----------------
+test('dos ventanas abiertas: el reporte de un docente le llega al administrador al instante', async () => {
+  const pedro = await login('pedro@suiza26.edu', 'demo123'); // Laboratorio 4-1
+  const maria = await login('maria@suiza26.edu', 'demo123'); // Laboratorios 4-2 y 4-3
+  const vAdmin = escuchar(admin.token);
+  const vMaria = escuchar(maria.token);
+  await esperar(() => vAdmin.eventos.some((e) => e.ev === 'conectado') && vMaria.eventos.some((e) => e.ev === 'conectado'));
+
+  const eq = await equipo('PC-4A-06');
+  const t0 = Date.now();
+  const rep = await call('/mantenimientos/problemas', { method: 'POST', token: pedro.token, body: { id_equipo: eq.id_equipo, titulo: `Requiere mantenimiento ${SUFIJO}`, descripcion: 'Hace ruido el ventilador.', severidad: 'Media' } });
+  assert.equal(rep.status, 201, JSON.stringify(rep.data));
+  const llego = await esperar(() => vAdmin.eventos.find((e) => e.ev === 'alerta' && e.datos.id_alerta === rep.data.id_alerta));
+  assert.ok(llego, 'el administrador recibe la alerta');
+  assert.ok(Date.now() - t0 < 2000, 'llega en menos de 2 segundos');
+  assert.equal(llego.datos.equipo, 'PC-4A-06');
+  assert.equal(llego.datos.laboratorio, 'Laboratorio 4-1');
+  assert.equal(llego.datos.reportado_por, 'Pedro Lopez');
+  assert.equal(llego.datos.origen, 'usuario');
+  await new Promise((ok) => setTimeout(ok, 300));
+  assert.ok(!vMaria.eventos.some((e) => e.ev === 'alerta' && e.datos.id_alerta === rep.data.id_alerta), 'otro laboratorio no la recibe');
+
+  const lista = await call('/alertas', { token: admin.token });
+  assert.ok(lista.data.some((a) => a.id_alerta === rep.data.id_alerta && a.reportado_por === 'Pedro Lopez'));
+  assert.equal((await call('/alertas', { token: pedro.token })).status, 403, 'el docente reporta pero no gestiona alertas');
+  const deMaria = await call('/alertas', { token: maria.token });
+  assert.ok(deMaria.data.every((a) => ['Laboratorio 4-2', 'Laboratorio 4-3'].includes(a.laboratorio)));
+  const res = await call('/alertas/resumen', { token: admin.token });
+  assert.ok(res.data.activas >= 1);
+
+  const resuelta = await call(`/mantenimientos/problemas/${rep.data.id_alerta}/resolver`, { method: 'PATCH', token: admin.token, body: {} });
+  assert.equal(resuelta.status, 200);
+  assert.ok(await esperar(() => vAdmin.eventos.find((e) => e.ev === 'alerta-resuelta' && e.datos.id_alerta === rep.data.id_alerta)), 'las ventanas se enteran de que se resolvió');
+  vAdmin.cerrar();
+  vMaria.cerrar();
+});
+
+test('una sola ventana: el reporte queda guardado y el administrador lo ve al entrar', async () => {
+  const pedro = await login('pedro@suiza26.edu', 'demo123');
+  const eq = await equipo('PC-4A-08');
+  const rep = await call('/mantenimientos/problemas', { method: 'POST', token: pedro.token, body: { id_equipo: eq.id_equipo, titulo: `Pantalla parpadea ${SUFIJO}`, descripcion: 'Parpadea al encender.' } });
+  assert.equal(rep.status, 201);
+  const adminLuego = await login('admin@controltech.com', 'Administrador1234');
+  const lista = await call('/alertas', { token: adminLuego.token });
+  assert.ok(lista.data.some((a) => a.id_alerta === rep.data.id_alerta && a.estado === 'Activa'));
+  await call(`/mantenimientos/problemas/${rep.data.id_alerta}/resolver`, { method: 'PATCH', token: admin.token, body: {} });
+});
+
+test('alertas automáticas: preventivo vencido y mantenimiento programado sin realizar', async () => {
+  const lab = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Alertas ${SUFIJO}`, capacidad_equipos: CMIN } });
+  const nuevoEq = async (n) => (await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-AL${n}-${SUFIJO}`, nro_serie: `SAL${n}-${SUFIJO}`, marca: 'Dell', id_laboratorio: lab.data.id_laboratorio } })).data;
+  const viejo = await nuevoEq(1);
+  const nuevo = await nuevoEq(2);
+  const atrasado = await nuevoEq(3);
+  await db.query('UPDATE equipos SET fecha_registro = DATE_SUB(NOW(), INTERVAL 200 DAY) WHERE id_equipo = ?', [viejo.id_equipo]);
+  const m = await call('/mantenimientos', { method: 'POST', token: admin.token, body: { id_equipo: atrasado.id_equipo, fecha_mantenimiento: '2026-10-01', tipo: 'Correctivo', detalle: `Cambio de disco ${SUFIJO}` } });
+  assert.equal(m.status, 201);
+
+  const pedro = await login('pedro@suiza26.edu', 'demo123');
+  assert.equal((await call('/alertas/verificar', { method: 'POST', token: pedro.token })).status, 403);
+  const vAdmin = escuchar(admin.token);
+  await esperar(() => vAdmin.eventos.some((e) => e.ev === 'conectado'));
+
+  const r = await call('/alertas/verificar', { method: 'POST', token: admin.token });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const prev = r.data.alertas.find((a) => a.id_equipo === viejo.id_equipo);
+  assert.ok(prev, 'detecta el preventivo vencido');
+  assert.equal(prev.titulo, 'Mantenimiento preventivo vencido');
+  assert.equal(prev.origen, 'sistema');
+  assert.match(prev.descripcion, /hace 200 días/);
+  const prog = r.data.alertas.find((a) => a.id_equipo === atrasado.id_equipo);
+  assert.ok(prog, 'detecta el mantenimiento programado sin realizar');
+  assert.equal(prog.titulo, 'Mantenimiento programado sin realizar');
+  assert.equal(prog.severidad, 'Alta');
+  assert.ok(!r.data.alertas.some((a) => a.id_equipo === nuevo.id_equipo), 'un equipo recién dado de alta no genera alerta');
+  assert.ok(await esperar(() => vAdmin.eventos.find((e) => e.ev === 'alerta' && e.datos.id_alerta === prev.id_alerta)), 'la alerta automática llega en vivo');
+  vAdmin.cerrar();
+
+  const r2 = await call('/alertas/verificar', { method: 'POST', token: admin.token });
+  assert.ok(!r2.data.alertas.some((a) => [viejo.id_equipo, atrasado.id_equipo].includes(a.id_equipo)), 'no se duplican');
+
+  // Al hacer el preventivo se resuelve la alerta y no vuelve a aparecer.
+  const hecho = await call('/mantenimientos', { method: 'POST', token: admin.token, body: { id_equipo: viejo.id_equipo, fecha_mantenimiento: new Date().toISOString().slice(0, 10), tipo: 'Preventivo', detalle: `Limpieza ${SUFIJO}`, estado: 'Completado', resolver_problemas: true } });
+  assert.equal(hecho.status, 201, JSON.stringify(hecho.data));
+  const [[a]] = await db.query('SELECT estado FROM alertas WHERE id_alerta = ?', [prev.id_alerta]);
+  assert.equal(a.estado, 'Resuelta');
+  const r3 = await call('/alertas/verificar', { method: 'POST', token: admin.token });
+  assert.ok(!r3.data.alertas.some((x) => x.id_equipo === viejo.id_equipo));
 });
 
 // ---------------- Conservacion de datos ----------------

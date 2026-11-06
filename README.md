@@ -156,6 +156,30 @@ Cada laboratorio tiene su propio equipamiento, cantidad, estados y software (en 
   - La baja queda en el historial de acciones (identificador, serie, modelo, laboratorio y lo eliminado), y una computadora de los datos iniciales eliminada **no se vuelve a crear** al reiniciar.
   - Para conservar el historial, conviene marcarla *Fuera de servicio* desde Editar en lugar de eliminarla.
 
+## Bloqueo y eliminación de usuarios (solo el administrador)
+
+En **Usuarios**, cada cuenta (salvo la del administrador) tiene las acciones **Bloquear/Desbloquear** y **Eliminar**:
+
+- **Bloquear**: la cuenta no puede iniciar sesión ("Tu cuenta está bloqueada") y, si tiene una ventana abierta, su sesión se cierra en el momento. Se conserva todo su historial y se puede desbloquear.
+- **Eliminar**: solo cuentas **sin historial**. Los mantenimientos, acciones y reportes de un usuario dependen de él en la base (claves foráneas); si tiene, se rechaza y se propone bloquearlo. Al eliminar se quitan sus asignaciones de laboratorio, sus equipos quedan sin responsable y la baja queda en el historial.
+- Requiere la columna `usuarios.bloqueado`, que el backend **agrega solo al iniciar** (migración segura, no modifica datos). Si el usuario de MySQL no tiene permiso `ALTER`, la terminal lo indica: ejecutá `backend/sql/migraciones/001_usuarios_bloqueado.sql` (por ejemplo como `root` en phpMyAdmin) y reiniciá el backend. Mientras tanto el resto del sistema funciona.
+
+## Alertas de mantenimiento (Necesidad 4)
+
+El sistema avisa cuando un equipo **requiere mantenimiento**, para que el administrador actúe antes de que falle.
+
+**Cómo se generan**
+- **Por un usuario**: cualquier usuario puede usar *Avisar que requiere mantenimiento* (ficha del equipo) o *Reportar problema* (Mantenimientos).
+- **Por el sistema** (al iniciar y cada `ALERTAS_INTERVALO_MIN` minutos, 15 por defecto):
+  - *Mantenimiento preventivo vencido*: el equipo no tiene un preventivo completado hace `ALERTA_PREVENTIVO_DIAS` días (180 por defecto), contando desde el último o desde su alta.
+  - *Mantenimiento programado sin realizar*: un mantenimiento cuya fecha ya pasó sigue Pendiente.
+  - No se duplican, y al completar el mantenimiento (marcando los problemas como resueltos) dejan de estar activas. El administrador puede forzar la verificación con *Verificar ahora* en la campana.
+
+**Cómo llegan** (administrador, directivo y roles de gestión, cada uno solo los de sus laboratorios)
+- **Dos ventanas abiertas** (el administrador y otro usuario): la alerta llega **al instante, sin recargar** (Server-Sent Events: `GET /api/alertas/stream`). Aparece un aviso, se actualiza el contador de la campana y el título de la pestaña (`(3) ControlTech`).
+- **Una sola ventana**: si está el administrador, recibe en vivo las alertas del sistema; si está otro usuario, su aviso queda guardado y el administrador lo ve al entrar ("Tenés N alertas activas"). Como respaldo, la lista se consulta cada minuto.
+- **Cada ventana tiene su propia sesión** (`sessionStorage`), así en el mismo navegador puede haber una ventana con el administrador y otra con otro usuario.
+
 ## Sección Mantenimientos (unificada)
 
 Reúne en una sola entrada de navegación:
@@ -193,6 +217,11 @@ Correspondencia con las tablas existentes:
 | GET | `/api/equipos`, `/api/equipos/:id`, `/api/software` | autenticado (filtrado por laboratorio) |
 | POST / PUT | `/api/equipos`, `/api/equipos/:id` | gestión, en sus laboratorios |
 | DELETE | `/api/equipos/:id` | administrador |
+| PATCH | `/api/usuarios/:id/bloqueo` | administrador |
+| DELETE | `/api/usuarios/:id` | administrador |
+| GET | `/api/alertas`, `/api/alertas/resumen` | administrador, directivo y gestión (por laboratorio) |
+| GET | `/api/alertas/stream` (eventos en tiempo real) | autenticado |
+| POST | `/api/alertas/verificar` | administrador |
 | GET | `/api/mantenimientos/resumen` | autenticado |
 | GET | `/api/mantenimientos/equipos-con-problemas` | autenticado |
 | GET | `/api/mantenimientos/historial/:idEquipo` | autenticado |

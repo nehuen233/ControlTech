@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../AuthContext.jsx'
 import { Alerta, Badge, Cargando, Modal, etiqueta, fecha, fechaHora, hoy } from '../components/ui.jsx'
+import { FormProblema } from './Mantenimientos.jsx'
 
 const ESTADOS = ['Operativo', 'Disponible', 'En uso', 'En mantenimiento', 'Fuera de servicio']
 
@@ -115,10 +116,13 @@ export default function Equipos() {
 }
 
 export function FichaEquipo({ id, puedeGestionar, recarga, onEditar, onClose, onEliminar }) {
-  const { esAdmin } = useAuth()
+  const { esAdmin, puedeReportar } = useAuth()
+  const [reportando, setReportando] = useState(false)
+  const [reportado, setReportado] = useState('')
+  const [recargaFicha, setRecargaFicha] = useState(0)
   const [eq, setEq] = useState(null)
   const [error, setError] = useState('')
-  useEffect(() => { api(`/equipos/${id}`).then(setEq).catch((e) => setError(e.message)) }, [id, recarga])
+  useEffect(() => { api(`/equipos/${id}`).then(setEq).catch((e) => setError(e.message)) }, [id, recarga, recargaFicha])
 
   return (
     <Modal titulo={eq ? `Equipo ${eq.identificador}` : 'Equipo'} onClose={onClose} ancho="720px">
@@ -189,12 +193,19 @@ export function FichaEquipo({ id, puedeGestionar, recarga, onEditar, onClose, on
               ))}
             </ol>
           )}
+          <Alerta tipo="ok" onClose={() => setReportado('')}>{reportado}</Alerta>
           <div className="form-acciones">
             {esAdmin && onEliminar && <button type="button" className="btn-link peligro empuja-izq" onClick={onEliminar}>Eliminar equipo</button>}
+            {puedeReportar && <button type="button" className="btn btn-secundario" onClick={() => { setReportado(''); setReportando(true) }}>Avisar que requiere mantenimiento</button>}
             <a className="btn btn-secundario" href="#/mantenimientos" onClick={onClose}>Ir a Mantenimientos</a>
             {puedeGestionar && <button type="button" className="btn btn-primario" onClick={onEditar}>Editar equipo</button>}
           </div>
         </div>
+      )}
+      {reportando && eq && (
+        <FormProblema equipos={[eq]} equipoInicial={String(eq.id_equipo)} puedeGestionar={puedeGestionar}
+          onClose={() => setReportando(false)}
+          onGuardado={() => { setReportando(false); setReportado('Aviso enviado: el administrador lo recibe como alerta de mantenimiento.'); setRecargaFicha((n) => n + 1) }} />
       )}
     </Modal>
   )

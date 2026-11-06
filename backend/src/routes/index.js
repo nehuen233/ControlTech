@@ -7,6 +7,7 @@ const usuarios = require('../controllers/usuariosController');
 const laboratorios = require('../controllers/laboratoriosController');
 const equipos = require('../controllers/equiposController');
 const software = require('../controllers/softwareController');
+const alertas = require('../controllers/alertasController');
 const mant = require('../controllers/mantenimientosController');
 const { pool } = require('../config/db');
 const { explicarErrorMySQL } = require('../config/diagnostico');
@@ -32,6 +33,15 @@ r.get('/roles/asignables', soloAdmin, h(usuarios.rolesAsignables));
 r.get('/usuarios', soloAdmin, h(usuarios.listar));
 r.post('/usuarios', soloAdmin, h(usuarios.crear));
 r.patch('/usuarios/:id/rol', soloAdmin, h(usuarios.actualizarRol));
+r.patch('/usuarios/:id/bloqueo', soloAdmin, h(usuarios.cambiarBloqueo));
+r.delete('/usuarios/:id', soloAdmin, h(usuarios.eliminar));
+
+// Alertas de mantenimiento: listado, resumen, eventos en tiempo real y verificacion manual
+const verAlertas = [autenticar, permitirRoles(ROLES.ADMIN, ROLES.DIRECTIVO, ROLES_GESTION_MANTENIMIENTO)];
+r.get('/alertas', verAlertas, h(alertas.listar));
+r.get('/alertas/resumen', verAlertas, h(alertas.resumen));
+r.get('/alertas/stream', autenticar, h(alertas.stream));
+r.post('/alertas/verificar', soloAdmin, h(alertas.verificar));
 
 // Laboratorios (filtrados por los laboratorios del usuario; alta y edicion solo el administrador)
 r.get('/laboratorios', autenticar, h(laboratorios.listar));
