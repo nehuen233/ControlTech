@@ -7,6 +7,7 @@ require('dotenv').config({ quiet: true });
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const mysql = require('mysql2/promise');
+const { CAPACIDAD_MIN: CMIN, CAPACIDAD_MAX: CMAX } = require('../src/utils/capacidad');
 
 const API = process.env.API_URL || `http://localhost:${process.env.PORT || 4000}/api`;
 const SUFIJO = Date.now().toString(36);
@@ -343,14 +344,14 @@ test('administrador: alta de laboratorio con validaciones y sin duplicados', asy
   const sinNombre = await call('/laboratorios', { method: 'POST', token: admin.token, body: { piso: '6to piso' } });
   assert.equal(sinNombre.status, 400);
   assert.match(sinNombre.data.error, /nombre del laboratorio es obligatorio/);
-  for (const cap of [-2, 0, 9, 16, 30, 12.5, '', null, undefined]) {
+  for (const cap of [-2, 0, CMIN - 1, CMAX + 1, CMIN + 0.5, '', null, undefined]) {
     const r = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: LAB_TEST, capacidad_equipos: cap } });
     assert.equal(r.status, 400, `capacidad ${cap} debe rechazarse`);
-    assert.match(r.data.error, /entre 10 y 15 equipos/);
+    assert.match(r.data.error, new RegExp(`entre ${CMIN} y ${CMAX} equipos`));
   }
   const [[ninguno]] = await db.query('SELECT COUNT(*) AS n FROM laboratorios WHERE nombre = ?', [LAB_TEST]);
   assert.equal(Number(ninguno.n), 0, 'ninguna capacidad inválida crea el laboratorio');
-  for (const cap of [10, 15]) {
+  for (const cap of [CMIN, CMAX]) {
     const lim = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Limite ${cap} ${SUFIJO}`, capacidad_equipos: cap } });
     assert.equal(lim.status, 201, `capacidad ${cap} es válida`);
     assert.equal(lim.data.capacidad_equipos, cap);
@@ -358,7 +359,7 @@ test('administrador: alta de laboratorio con validaciones y sin duplicados', asy
 
   const r = await call('/laboratorios', {
     method: 'POST', token: admin.token,
-    body: { nombre: LAB_TEST, descripcion: 'Laboratorio de pruebas', edificio: 'Anexo', piso: '6to piso', ubicacion: 'Ala norte', capacidad_equipos: 10, codigo_acceso: 'TARJ-99' },
+    body: { nombre: LAB_TEST, descripcion: 'Laboratorio de pruebas', edificio: 'Anexo', piso: '6to piso', ubicacion: 'Ala norte', capacidad_equipos: CMIN, codigo_acceso: 'TARJ-99' },
   });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.estado, 'Activo');
@@ -366,15 +367,15 @@ test('administrador: alta de laboratorio con validaciones y sin duplicados', asy
   labTest = r.data.id_laboratorio;
   const [asig] = await db.query('SELECT 1 FROM usuario_laboratorio WHERE id_usuario = ? AND id_laboratorio = ?', [adminAntes.id_usuario, labTest]);
   assert.equal(asig.length, 1, 'el administrador queda asignado al laboratorio nuevo');
-  const dup = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `  ${LAB_TEST.toUpperCase()} `, capacidad_equipos: 15 } });
+  const dup = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `  ${LAB_TEST.toUpperCase()} `, capacidad_equipos: CMAX } });
   assert.equal(dup.status, 409);
-  const dupExistente = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: 'Laboratorio 4-1', capacidad_equipos: 15 } });
+  const dupExistente = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: 'Laboratorio 4-1', capacidad_equipos: CMAX } });
   assert.equal(dupExistente.status, 409);
 });
 
 test('solo el administrador crea o edita laboratorios', async () => {
   const maria = await login('maria@suiza26.edu', 'demo123');
-  assert.equal((await call('/laboratorios', { method: 'POST', token: maria.token, body: { nombre: `X ${SUFIJO}`, capacidad_equipos: 15 } })).status, 403);
+  assert.equal((await call('/laboratorios', { method: 'POST', token: maria.token, body: { nombre: `X ${SUFIJO}`, capacidad_equipos: CMAX } })).status, 403);
   assert.equal((await call(`/laboratorios/${await idLab('Laboratorio 4-2')}`, { method: 'PUT', token: maria.token, body: { piso: 'x' } })).status, 403);
 });
 
@@ -392,26 +393,28 @@ test('detalle de laboratorio y restricción por laboratorio asignado', async () 
 });
 
 test('edición de laboratorio', async () => {
-  const r = await call(`/laboratorios/${labTest}`, { method: 'PUT', token: admin.token, body: { ubicacion: 'Ala sur', capacidad_equipos: 12 } });
+  const r = await call(`/laboratorios/${labTest}`, { method: 'PUT', token: admin.token, body: { ubicacion: 'Ala sur', capacidad_equipos: CMIN + 1 } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.ubicacion, 'Ala sur');
-  assert.equal(r.data.capacidad_equipos, 12);
-  for (const cap of [9, 16, null]) {
+  assert.equal(r.data.capacidad_equipos, CMIN + 1);
+  for (const cap of [CMIN - 1, CMAX + 1, null]) {
     const x = await call(`/laboratorios/${labTest}`, { method: 'PUT', token: admin.token, body: { capacidad_equipos: cap } });
     assert.equal(x.status, 400, `capacidad ${cap} debe rechazarse al editar`);
-    assert.match(x.data.error, /entre 10 y 15 equipos/);
+    assert.match(x.data.error, new RegExp(`entre ${CMIN} y ${CMAX} equipos`));
   }
   const [[lab41]] = await db.query("SELECT COUNT(*) AS n FROM equipos e JOIN laboratorios l USING (id_laboratorio) WHERE l.nombre = 'Laboratorio 4-1'");
-  assert.ok(Number(lab41.n) > 10);
-  const bajo = await call(`/laboratorios/${await idLab('Laboratorio 4-1')}`, { method: 'PUT', token: admin.token, body: { capacidad_equipos: 10 } });
+  // Capacidad válida pero menor a los equipos registrados.
+  const [lleno41] = await db.query('INSERT INTO laboratorios (nombre, capacidad_equipos) VALUES (?, ?)', [`Lab Ocupado ${SUFIJO}`, CMAX]);
+  await llenar(lleno41.insertId, CMIN + 1, 'OC');
+  const bajo = await call(`/laboratorios/${lleno41.insertId}`, { method: 'PUT', token: admin.token, body: { capacidad_equipos: CMIN } });
   assert.equal(bajo.status, 400);
   assert.match(bajo.data.error, /no puede ser menor/);
   // Un laboratorio antiguo con capacidad fuera del rango se puede seguir editando sin tocar la capacidad.
-  const [viejo] = await db.query('INSERT INTO laboratorios (nombre, capacidad_equipos) VALUES (?, 30)', [`Lab Antiguo ${SUFIJO}`]);
+  const [viejo] = await db.query('INSERT INTO laboratorios (nombre, capacidad_equipos) VALUES (?, ?)', [`Lab Antiguo ${SUFIJO}`, CMAX + 20]);
   const ed = await call(`/laboratorios/${viejo.insertId}`, { method: 'PUT', token: admin.token, body: { ubicacion: 'Planta baja' } });
   assert.equal(ed.status, 200, JSON.stringify(ed.data));
-  assert.equal(ed.data.capacidad_equipos, 30);
-  assert.equal((await call(`/laboratorios/${viejo.insertId}`, { method: 'PUT', token: admin.token, body: { capacidad_equipos: 20 } })).status, 400);
+  assert.equal(ed.data.capacidad_equipos, CMAX + 20);
+  assert.equal((await call(`/laboratorios/${viejo.insertId}`, { method: 'PUT', token: admin.token, body: { capacidad_equipos: CMAX + 5 } })).status, 400);
   assert.equal((await call(`/laboratorios/${labTest}`, { method: 'PUT', token: admin.token, body: { estado: 'Cerrado' } })).status, 400);
 });
 
@@ -468,20 +471,20 @@ test('capacidad y estado del laboratorio al agregar equipos', async () => {
     const r = await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-T${n}-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-${n}`, marca: 'HP', id_laboratorio: labTest } });
     assert.equal(r.status, 201, JSON.stringify(r.data));
   }
-  // Laboratorio con capacidad 10 completo: el equipo 11 se rechaza.
-  const lleno10 = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Lleno ${SUFIJO}`, capacidad_equipos: 10 } });
-  await llenar(lleno10.data.id_laboratorio, 10, 'LL');
+  // Laboratorio con la capacidad mínima completo: el siguiente equipo se rechaza.
+  const lleno10 = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Lleno ${SUFIJO}`, capacidad_equipos: CMIN } });
+  await llenar(lleno10.data.id_laboratorio, CMIN, 'LL');
   const lleno = await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-T7-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-7`, marca: 'HP', id_laboratorio: lleno10.data.id_laboratorio } });
   assert.equal(lleno.status, 409);
-  assert.match(lleno.data.error, /capacidad máxima \(10 equipos\)/);
-  // Laboratorio antiguo sin capacidad cargada: se aplica el máximo de 15.
+  assert.match(lleno.data.error, new RegExp(`capacidad máxima \\(${CMIN} equipos\\)`));
+  // Laboratorio antiguo sin capacidad cargada: se aplica el máximo permitido.
   const [sinCap] = await db.query('INSERT INTO laboratorios (nombre) VALUES (?)', [`Lab Sin Capacidad ${SUFIJO}`]);
-  await llenar(sinCap.insertId, 15, 'SC');
+  await llenar(sinCap.insertId, CMAX, 'SC');
   const tope = await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-T9-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-9`, marca: 'HP', id_laboratorio: sinCap.insertId } });
   assert.equal(tope.status, 409);
-  assert.match(tope.data.error, /capacidad máxima \(15 equipos\)/);
+  assert.match(tope.data.error, new RegExp(`capacidad máxima \\(${CMAX} equipos\\)`));
 
-  const inactivo = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `${LAB_TEST} inactivo`, estado: 'Inactivo', capacidad_equipos: 10 } });
+  const inactivo = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `${LAB_TEST} inactivo`, estado: 'Inactivo', capacidad_equipos: CMIN } });
   assert.equal(inactivo.status, 201);
   const r = await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-T8-${SUFIJO}`, nro_serie: `SER-${SUFIJO}-8`, marca: 'HP', id_laboratorio: inactivo.data.id_laboratorio } });
   assert.equal(r.status, 400);
@@ -672,7 +675,7 @@ test('quitar software de un laboratorio y permisos por laboratorio', async () =>
 
 // ---------------- Eliminacion de laboratorios ----------------
 test('eliminar un laboratorio vacío (solo el administrador)', async () => {
-  const c = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Borrar ${SUFIJO}`, capacidad_equipos: 10 } });
+  const c = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Borrar ${SUFIJO}`, capacidad_equipos: CMIN } });
   assert.equal(c.status, 201);
   const id = c.data.id_laboratorio;
   const maria = await login('maria@suiza26.edu', 'demo123');
@@ -702,15 +705,15 @@ test('eliminar un laboratorio con computadoras: se trasladan con su historial', 
   const rInactivo = await call(`/laboratorios/${labTest}`, { method: 'DELETE', token: admin.token, body: { destino: inactivo.id_laboratorio } });
   assert.equal(rInactivo.status, 400);
   assert.match(rInactivo.data.error, /inactivo/);
-  const chico = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Chico ${SUFIJO}`, capacidad_equipos: 10 } });
-  await llenar(chico.data.id_laboratorio, 8, 'CH'); // le quedan 2 lugares
+  const chico = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Chico ${SUFIJO}`, capacidad_equipos: CMIN } });
+  await llenar(chico.data.id_laboratorio, CMIN - 2, 'CH'); // le quedan 2 lugares
   const rLleno = await call(`/laboratorios/${labTest}`, { method: 'DELETE', token: admin.token, body: { destino: chico.data.id_laboratorio } });
   assert.equal(rLleno.status, 409);
   assert.match(rLleno.data.error, /solo tiene lugar para 2/);
   const [[sigue]] = await db.query('SELECT COUNT(*) AS n FROM laboratorios WHERE id_laboratorio = ?', [labTest]);
   assert.equal(Number(sigue.n), 1, 'los intentos rechazados no eliminan nada');
 
-  const destino = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Destino ${SUFIJO}`, capacidad_equipos: 10 } });
+  const destino = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Destino ${SUFIJO}`, capacidad_equipos: CMIN } });
   const r = await call(`/laboratorios/${labTest}`, { method: 'DELETE', token: admin.token, body: { destino: destino.data.id_laboratorio } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.equipos_movidos, 3);
@@ -729,7 +732,7 @@ test('eliminar un laboratorio con computadoras: se trasladan con su historial', 
 
 // ---------------- Eliminacion de equipos ----------------
 test('eliminar equipos: solo el administrador y con confirmación si tienen historial', async () => {
-  const lab = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Bajas ${SUFIJO}`, capacidad_equipos: 10 } });
+  const lab = await call('/laboratorios', { method: 'POST', token: admin.token, body: { nombre: `Lab Bajas ${SUFIJO}`, capacidad_equipos: CMIN } });
   const idLabB = lab.data.id_laboratorio;
   const nuevo = async (n) => (await call('/equipos', { method: 'POST', token: admin.token, body: { identificador: `PC-BAJA${n}-${SUFIJO}`, nro_serie: `SBAJA${n}-${SUFIJO}`, marca: 'HP', id_laboratorio: idLabB } })).data;
   const sinHist = await nuevo(1);

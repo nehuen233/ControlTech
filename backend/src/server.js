@@ -11,6 +11,12 @@ if (!process.env.JWT_SECRET) {
 }
 
 const app = require('./app');
+
+// Un error no capturado dentro de una peticion no debe apagar todo el servidor:
+// se registra con detalle para poder corregirlo y el backend sigue atendiendo.
+process.on('unhandledRejection', (err) => {
+  console.error('Error no controlado (el servidor sigue funcionando):', err);
+});
 const { pool } = require('./config/db');
 const { explicarErrorMySQL } = require('./config/diagnostico');
 const { asegurarRolesAsignables } = require('./controllers/usuariosController');

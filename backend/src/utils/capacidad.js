@@ -1,4 +1,4 @@
-// Capacidad de los laboratorios: entre 10 y 15 computadoras.
+// Capacidad de los laboratorios: entre CAPACIDAD_MIN y CAPACIDAD_MAX computadoras.
 const CAPACIDAD_MIN = 15;
 const CAPACIDAD_MAX = 30;
 

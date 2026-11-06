@@ -4,7 +4,8 @@ const { HttpError } = require('../utils/httpError');
 
 // Valida el token y recarga el rol desde MySQL en cada peticion, para que un cambio
 // de rol tenga efecto inmediato y no se pueda falsificar desde el cliente.
-async function autenticar(req, next) {
+// Express pasa los parametros por posicion (req, res, next): no quitar _res aunque no se use.
+async function autenticar(req, _res, next) {
   try {
     const header = req.headers.authorization || '';
     const [tipo, token] = header.split(' ');
