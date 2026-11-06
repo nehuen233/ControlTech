@@ -13,7 +13,7 @@ const { explicarErrorMySQL } = require('../config/diagnostico');
 
 const r = Router();
 
-r.get('/health', async (req, res) => {
+r.get('/health', async (res) => {
   try {
     await pool.query('SELECT 1');
     res.json({ ok: true, db: 'conectada' });

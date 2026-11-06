@@ -15,7 +15,7 @@ async function asegurarRolesAsignables() {
   return r.affectedRows;
 }
 
-async function rolesAsignables(req, res) {
+async function rolesAsignables( res) {
   await asegurarRolesAsignables();
   const rows = await query(
     'SELECT id_rol, nombre_rol FROM roles WHERE nombre_rol IN (?) ORDER BY FIELD(nombre_rol, ?)',

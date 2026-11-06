@@ -14,7 +14,7 @@ const ROLES_ASIGNABLES = Object.freeze([ROLES.DOCENTE, ROLES.DOCENTE_LAB, ROLES.
 
 // Roles que ven todos los laboratorios.
 const ROLES_TODOS_LOS_LABS = Object.freeze([ROLES.ADMIN, ROLES.DIRECTIVO]);
-
+  
 // Roles que gestionan mantenimientos (alta, edicion y cambio de estado) en sus laboratorios.
 const ROLES_GESTION_MANTENIMIENTO = Object.freeze([
   ROLES.ADMIN, ROLES.TECNICO, ROLES.ENCARGADO, ROLES.DOCENTE_LAB,

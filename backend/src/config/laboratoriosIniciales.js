@@ -8,7 +8,7 @@ const LABORATORIOS_INICIALES = Object.freeze([
   { nombre: 'Laboratorio 4-3', piso: '4to piso', ubicacion: 'Sector 4-3', descripcion: 'Laboratorio del cuarto piso para clases y actividades educativas con computadoras' },
   { nombre: 'Laboratorio 5-1', piso: '5to piso', ubicacion: 'Ala izquierda', descripcion: 'Laboratorio del quinto piso para clases y actividades educativas con computadoras' },
   { nombre: 'Laboratorio 5-2', piso: '5to piso', ubicacion: 'Ala Derecha', descripcion: 'Laboratorio del quinto piso para clases y actividades educativas con computadoras' },
-].map((l) => Object.freeze({ ...l, edificio: 'Edificio principal del colegio', capacidad_equipos: 15, estado: 'Activo' })));
+].map((l) => Object.freeze({ ...l, edificio: 'Edificio principal del colegio', capacidad_equipos: 30, estado: 'Activo' })));
 
 // Crea los laboratorios iniciales que falten (se identifican por nombre: no se duplican
 // ni se modifican los existentes) y da acceso a ellos al administrador. No vuelve a crear

@@ -5,15 +5,17 @@ import { Alerta, Badge, Cargando, Modal } from '../components/ui.jsx'
 import LaboratorioDetalle from './LaboratorioDetalle.jsx'
 
 // Capacidad permitida por laboratorio (la misma regla valida el backend).
-export const CAPACIDAD_MIN = 10
-export const CAPACIDAD_MAX = 15
+export const CAPACIDAD_MIN = 15
+export const CAPACIDAD_MAX = 30
 const capacidadEfectiva = (c) => (c == null ? CAPACIDAD_MAX : c)
 
 // #/laboratorios/3 abre la pagina del laboratorio 3.
 const idDesdeHash = () => window.location.hash.match(/^#\/laboratorios\/(\d+)/)?.[1] || null
 
 export default function Laboratorios() {
+
   const [idLab, setIdLab] = useState(idDesdeHash)
+
   useEffect(() => {
     const onHash = () => setIdLab(idDesdeHash())
     window.addEventListener('hashchange', onHash)
