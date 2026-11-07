@@ -1,14 +1,38 @@
 // Migraciones seguras del esquema. Solo AGREGAN lo que el sistema necesita y no existe:
 // no borran ni modifican datos.
 //   001 - usuarios.bloqueado: permite al administrador bloquear cuentas.
-// Si el usuario de MySQL no tiene permiso ALTER, el sistema sigue funcionando sin la
-// funcion de bloqueo y se indica la sentencia para ejecutarla a mano
-// (backend/sql/migraciones/001_usuarios_bloqueado.sql).
+//   002 - tabla solicitudes_contrasena: pedidos de "¿Olvidaste tu contraseña?".
+// Si el usuario de MySQL no tiene permiso (ALTER / CREATE), el resto del sistema sigue
+// funcionando sin esa funcion y se indica el archivo de backend/sql/migraciones a ejecutar.
 const { query } = require('./db');
 
-const estado = { bloqueo: false, verificado: false, error: null };
+const estado = { bloqueo: false, solicitudes: false, verificado: false, error: null, errores: {} };
 
 const SQL_BLOQUEO = 'ALTER TABLE usuarios ADD COLUMN bloqueado TINYINT(1) NOT NULL DEFAULT 0';
+const SQL_SOLICITUDES = `CREATE TABLE IF NOT EXISTS solicitudes_contrasena (
+  id_solicitud INT AUTO_INCREMENT PRIMARY KEY,
+  id_usuario INT NOT NULL,
+  mensaje VARCHAR(300) NULL,
+  fecha_solicitud DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  estado ENUM('Pendiente','Atendida','Descartada') NOT NULL DEFAULT 'Pendiente',
+  fecha_atencion DATETIME NULL,
+  id_atendida_por INT NULL,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+  FOREIGN KEY (id_atendida_por) REFERENCES usuarios(id_usuario) ON DELETE SET NULL
+) ENGINE=InnoDB`;
+
+const MIGRACIONES = [
+  {
+    clave: 'bloqueo', archivo: '001_usuarios_bloqueado.sql', permiso: 'ALTER', sql: SQL_BLOQUEO,
+    existe: () => columnaExiste('usuarios', 'bloqueado'),
+    nombre: 'la columna usuarios.bloqueado',
+  },
+  {
+    clave: 'solicitudes', archivo: '002_solicitudes_contrasena.sql', permiso: 'CREATE y REFERENCES', sql: SQL_SOLICITUDES,
+    existe: () => tablaExiste('solicitudes_contrasena'),
+    nombre: 'la tabla solicitudes_contrasena',
+  },
+];
 
 async function columnaExiste(tabla, columna) {
   const rows = await query(
@@ -18,23 +42,31 @@ async function columnaExiste(tabla, columna) {
   return rows.length > 0;
 }
 
+async function tablaExiste(tabla) {
+  const rows = await query('SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?', [tabla]);
+  return rows.length > 0;
+}
+
 async function asegurarEsquema() {
-  const r = { agregadas: [], error: null };
-  try {
-    if (!(await columnaExiste('usuarios', 'bloqueado'))) {
-      await query(SQL_BLOQUEO);
-      r.agregadas.push('usuarios.bloqueado');
-    }
-    estado.bloqueo = true;
-    estado.error = null;
-  } catch (err) {
-    estado.bloqueo = await columnaExiste('usuarios', 'bloqueado').catch(() => false);
-    if (!estado.bloqueo) {
-      estado.error = `No se pudo agregar la columna usuarios.bloqueado (${err.code || err.message}). `
-        + 'Ejecutá backend/sql/migraciones/001_usuarios_bloqueado.sql con un usuario de MySQL con permiso ALTER (por ejemplo root) y reiniciá el backend.';
-      r.error = estado.error;
+  const r = { agregadas: [], errores: [] };
+  for (const m of MIGRACIONES) {
+    try {
+      if (!(await m.existe())) {
+        await query(m.sql);
+        r.agregadas.push(m.nombre);
+      }
+      estado[m.clave] = true;
+      delete estado.errores[m.clave];
+    } catch (err) {
+      estado[m.clave] = await m.existe().catch(() => false);
+      if (!estado[m.clave]) {
+        estado.errores[m.clave] = `No se pudo crear ${m.nombre} (${err.code || err.message}). `
+          + `Ejecutá backend/sql/migraciones/${m.archivo} con un usuario de MySQL con permiso ${m.permiso} (por ejemplo root) y reiniciá el backend.`;
+        r.errores.push(estado.errores[m.clave]);
+      }
     }
   }
+  estado.error = estado.errores.bloqueo || null; // compatibilidad: mensaje del bloqueo
   estado.verificado = true;
   return r;
 }
@@ -50,4 +82,4 @@ async function asegurarEsquemaUnaVez() {
 // Expresion SQL del estado de bloqueo; "0" si la columna todavia no existe.
 const colBloqueado = (alias = 'u') => (estado.bloqueo ? `${alias}.bloqueado` : '0');
 
-module.exports = { estado, asegurarEsquema, asegurarEsquemaUnaVez, colBloqueado, SQL_BLOQUEO };
+module.exports = { estado, asegurarEsquema, asegurarEsquemaUnaVez, colBloqueado, SQL_BLOQUEO, SQL_SOLICITUDES };

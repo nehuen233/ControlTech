@@ -1,11 +1,11 @@
 const { query, withTransaction } = require('../config/db');
 const { HttpError } = require('../utils/httpError');
-const { hashContrasena } = require('../utils/password');
+const { hashContrasena, generarTemporal } = require('../utils/password');
 const { ROLES, ROLES_ASIGNABLES, etiquetaRol, listaRolesAsignables } = require('../utils/roles');
 const { registrarAccion } = require('../utils/historial');
 const { texto, enteroPositivo } = require('../utils/validacion');
 const { estado: esquema, asegurarEsquemaUnaVez, colBloqueado } = require('../config/esquema');
-const { cerrarSesionesDe } = require('../utils/eventos');
+const { cerrarSesionesDe, emitirAdmins } = require('../utils/eventos');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -61,6 +61,7 @@ async function listar(req, res) {
             (SELECT COUNT(*) FROM mantenimientos m WHERE m.id_usuario = u.id_usuario) AS mantenimientos,
             (SELECT COUNT(*) FROM historial_acciones h WHERE h.id_usuario = u.id_usuario) AS acciones,
             (SELECT COUNT(*) FROM reportes rp WHERE rp.id_usuario = u.id_usuario) AS reportes,
+            ${esquema.solicitudes ? "(SELECT MAX(sc.id_solicitud) FROM solicitudes_contrasena sc WHERE sc.id_usuario = u.id_usuario AND sc.estado = 'Pendiente')" : 'NULL'} AS solicitud_pendiente,
             GROUP_CONCAT(l.nombre ORDER BY l.nombre SEPARATOR ', ') AS laboratorios,
             GROUP_CONCAT(l.id_laboratorio ORDER BY l.nombre) AS ids_laboratorios
        FROM usuarios u
@@ -79,12 +80,13 @@ async function listar(req, res) {
     bloqueado: Boolean(Number(u.bloqueado)),
     mantenimientos: Number(u.mantenimientos), acciones: Number(u.acciones), reportes: Number(u.reportes),
     protegido: u.nombre_rol === ROLES.ADMIN || u.id_usuario === req.user.id,
+    solicitud_pendiente: u.solicitud_pendiente ? Number(u.solicitud_pendiente) : null,
   })));
   if (!esquema.bloqueo) res.setHeader('X-ControlTech-Aviso', 'bloqueo-no-disponible');
 }
 
 // Cuenta sobre la que el administrador puede actuar: nunca un administrador ni la propia.
-async function obtenerGestionable(req) {
+async function obtenerGestionable(req, mensajeAdmin) {
   const id = enteroPositivo(req.params.id, 'El usuario');
   const [u] = await query(
     'SELECT u.id_usuario, u.nombre, u.apellido, u.email, r.nombre_rol FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE u.id_usuario = ?',
@@ -92,7 +94,7 @@ async function obtenerGestionable(req) {
   );
   if (!u) throw new HttpError(404, 'El usuario no existe.');
   if (u.nombre_rol === ROLES.ADMIN || id === req.user.id) {
-    throw new HttpError(403, 'La cuenta del administrador no puede bloquearse ni eliminarse.');
+    throw new HttpError(403, mensajeAdmin || 'La cuenta del administrador no puede bloquearse ni eliminarse.');
   }
   return u;
 }
@@ -221,4 +223,81 @@ async function actualizarRol(req, res) {
   res.json({ id_usuario: id, id_rol: rol.id_rol, nombre_rol: rol.nombre_rol, rolEtiqueta: etiquetaRol(rol.nombre_rol) });
 }
 
-module.exports = { asegurarRolesAsignables, rolesAsignables, listar, crear, actualizarRol, cambiarBloqueo, eliminar };
+// ---------- Solicitudes de cambio de contraseña ("¿Olvidaste tu contraseña?") ----------
+
+async function requiereSolicitudes() {
+  await asegurarEsquemaUnaVez();
+  if (!esquema.solicitudes) throw new HttpError(503, esquema.errores.solicitudes || 'La recuperación de contraseña no está disponible.');
+}
+
+async function listarSolicitudes(req, res) {
+  await requiereSolicitudes();
+  const estadoSol = req.query.estado || 'Pendiente';
+  if (!['Pendiente', 'Atendida', 'Descartada', 'todas'].includes(estadoSol)) throw new HttpError(400, 'Estado de solicitud no válido.');
+  const rows = await query(
+    `SELECT s.id_solicitud, s.mensaje, s.fecha_solicitud, s.estado, s.fecha_atencion,
+            u.id_usuario, u.nombre, u.apellido, u.email, r.nombre_rol, ${colBloqueado()} AS bloqueado,
+            CONCAT(a.nombre, ' ', a.apellido) AS atendida_por
+       FROM solicitudes_contrasena s
+       JOIN usuarios u ON u.id_usuario = s.id_usuario
+       JOIN roles r ON r.id_rol = u.id_rol
+       LEFT JOIN usuarios a ON a.id_usuario = s.id_atendida_por
+      ${estadoSol === 'todas' ? '' : 'WHERE s.estado = ?'}
+      ORDER BY FIELD(s.estado, 'Pendiente') DESC, s.fecha_solicitud DESC
+      LIMIT 200`,
+    estadoSol === 'todas' ? [] : [estadoSol],
+  );
+  res.json(rows.map((x) => ({ ...x, bloqueado: Boolean(Number(x.bloqueado)), rolEtiqueta: etiquetaRol(x.nombre_rol) })));
+}
+
+async function descartarSolicitud(req, res) {
+  await requiereSolicitudes();
+  const id = enteroPositivo(req.params.id, 'La solicitud');
+  const [s] = await query('SELECT s.id_solicitud, s.estado, u.email, u.id_usuario FROM solicitudes_contrasena s JOIN usuarios u ON u.id_usuario = s.id_usuario WHERE s.id_solicitud = ?', [id]);
+  if (!s) throw new HttpError(404, 'La solicitud no existe.');
+  if (s.estado !== 'Pendiente') throw new HttpError(409, 'La solicitud ya fue atendida o descartada.');
+  await withTransaction(async (conn) => {
+    await conn.query("UPDATE solicitudes_contrasena SET estado = 'Descartada', fecha_atencion = NOW(), id_atendida_por = ? WHERE id_solicitud = ?", [req.user.id, id]);
+    await registrarAccion(conn, {
+      idUsuario: req.user.id, accion: 'Modificar', entidad: 'Usuario', idRegistro: s.id_usuario,
+      detalle: `Solicitud de cambio de contraseña de ${s.email} descartada.`,
+    });
+  });
+  emitirAdmins('solicitud-atendida', { id_solicitud: id, id_usuario: s.id_usuario });
+  res.json({ id_solicitud: id, estado: 'Descartada' });
+}
+
+// El administrador asigna una contraseña nueva (escrita o temporal generada). Se guarda con
+// bcrypt, se cierran las sesiones abiertas del usuario y sus solicitudes pendientes quedan atendidas.
+async function cambiarContrasena(req, res) {
+  const u = await obtenerGestionable(req, 'La contraseña del administrador no se cambia desde este panel.');
+  const generar = req.body?.generar === true;
+  const nueva = generar ? generarTemporal() : (typeof req.body?.contrasena === 'string' ? req.body.contrasena : '');
+  if (nueva.length < 8) throw new HttpError(400, 'La contraseña debe tener al menos 8 caracteres.');
+  if (nueva.length > 72) throw new HttpError(400, 'La contraseña admite hasta 72 caracteres.');
+  const hash = await hashContrasena(nueva);
+  let atendidas = [];
+  await withTransaction(async (conn) => {
+    await conn.query('UPDATE usuarios SET contrasena = ? WHERE id_usuario = ?', [hash, u.id_usuario]);
+    if (esquema.solicitudes) {
+      const [pend] = await conn.query("SELECT id_solicitud FROM solicitudes_contrasena WHERE id_usuario = ? AND estado = 'Pendiente'", [u.id_usuario]);
+      atendidas = pend.map((p) => p.id_solicitud);
+      if (atendidas.length) {
+        await conn.query("UPDATE solicitudes_contrasena SET estado = 'Atendida', fecha_atencion = NOW(), id_atendida_por = ? WHERE id_solicitud IN (?)", [req.user.id, atendidas]);
+      }
+    }
+    await registrarAccion(conn, {
+      idUsuario: req.user.id, accion: 'Modificar', entidad: 'Usuario', idRegistro: u.id_usuario,
+      detalle: `Cambio de contraseña de ${u.email}${generar ? ' (temporal generada)' : ''}${atendidas.length ? ' por solicitud del usuario' : ''}.`,
+    });
+  });
+  cerrarSesionesDe(u.id_usuario, 'Tu contraseña fue cambiada por el administrador. Iniciá sesión con la nueva contraseña.');
+  for (const id of atendidas) emitirAdmins('solicitud-atendida', { id_solicitud: id, id_usuario: u.id_usuario });
+  // La contraseña solo se devuelve si la genero el sistema, para que el administrador la comunique.
+  res.json({ id_usuario: u.id_usuario, email: u.email, solicitudes_atendidas: atendidas.length, ...(generar ? { contrasena_temporal: nueva } : {}) });
+}
+
+module.exports = {
+  asegurarRolesAsignables, rolesAsignables, listar, crear, actualizarRol, cambiarBloqueo, eliminar,
+  listarSolicitudes, descartarSolicitud, cambiarContrasena,
+};

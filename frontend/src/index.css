@@ -269,3 +269,16 @@ tr:last-child td { border-bottom: 0; }
 .alerta-aviso { background: var(--warn-soft); color: var(--warn); }
 .fila-bloqueada td { color: var(--muted); }
 .campo-busqueda { max-width: 320px; }
+
+/* Recuperacion de contraseña */
+.titulo-recuperar { font-size: 1.1rem; }
+.login-tarjeta .btn-link.centro { align-self: center; }
+.contador-nav { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: .5rem; border-radius: 999px; background: var(--warn); color: #fff; font-size: .72rem; font-weight: 700; vertical-align: middle; }
+.panel-solicitudes { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: var(--radius); padding: 1rem; display: flex; flex-direction: column; gap: .5rem; }
+.panel-solicitudes h2 { font-size: 1rem; display: flex; align-items: center; }
+.panel-solicitudes p { margin: 0; }
+.panel-solicitudes ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.panel-solicitudes li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .7rem .9rem; }
+.mensaje-solicitud { margin-top: .2rem; font-style: italic; }
+.contrasena-nueva { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 1rem; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface-2); }
+.contrasena-nueva code { font-size: 1.15rem; font-weight: 700; letter-spacing: .04em; word-break: break-all; }

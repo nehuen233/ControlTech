@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { query } = require('../config/db');
 const { HttpError } = require('../utils/httpError');
 const { asegurarEsquemaUnaVez, colBloqueado } = require('../config/esquema');
+const { huellaContrasena } = require('../utils/password');
 
 // Valida el token y recarga el rol desde MySQL en cada peticion, para que un cambio
 // de rol tenga efecto inmediato y no se pueda falsificar desde el cliente.
@@ -19,13 +20,17 @@ async function autenticar(req, _res, next) {
     }
     await asegurarEsquemaUnaVez();
     const rows = await query(
-      `SELECT u.id_usuario, u.nombre, u.apellido, u.email, r.nombre_rol, ${colBloqueado()} AS bloqueado
+      `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.contrasena, r.nombre_rol, ${colBloqueado()} AS bloqueado
          FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol
         WHERE u.id_usuario = ?`,
       [payload.sub],
     );
     if (!rows.length) throw new HttpError(401, 'El usuario de la sesión ya no existe.');
     if (Number(rows[0].bloqueado)) throw new HttpError(401, 'Tu cuenta fue bloqueada por el administrador.', { codigo: 'CUENTA_BLOQUEADA' });
+    // La sesion se emitio con otra contraseña: el administrador la cambio.
+    if (payload.pv !== huellaContrasena(rows[0].contrasena)) {
+      throw new HttpError(401, 'Tu contraseña fue cambiada. Iniciá sesión con la nueva contraseña.', { codigo: 'CONTRASENA_CAMBIADA' });
+    }
     const u = rows[0];
     req.user = { id: u.id_usuario, nombre: u.nombre, apellido: u.apellido, email: u.email, rol: u.nombre_rol };
     next();

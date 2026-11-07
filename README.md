@@ -164,6 +164,15 @@ En **Usuarios**, cada cuenta (salvo la del administrador) tiene las acciones **B
 - **Eliminar**: solo cuentas **sin historial**. Los mantenimientos, acciones y reportes de un usuario dependen de él en la base (claves foráneas); si tiene, se rechaza y se propone bloquearlo. Al eliminar se quitan sus asignaciones de laboratorio, sus equipos quedan sin responsable y la baja queda en el historial.
 - Requiere la columna `usuarios.bloqueado`, que el backend **agrega solo al iniciar** (migración segura, no modifica datos). Si el usuario de MySQL no tiene permiso `ALTER`, la terminal lo indica: ejecutá `backend/sql/migraciones/001_usuarios_bloqueado.sql` (por ejemplo como `root` en phpMyAdmin) y reiniciá el backend. Mientras tanto el resto del sistema funciona.
 
+## Recuperación de contraseña ("¿Olvidaste tu contraseña?")
+
+1. En el inicio de sesión, el usuario elige **¿Olvidaste tu contraseña?**, escribe su email (y, si quiere, un mensaje) y envía la solicitud. La respuesta es siempre la misma, exista o no la cuenta, para no revelar qué emails están registrados. El administrador no usa esta opción. Hay un límite de 3 solicitudes por email cada 15 minutos, y cada usuario tiene una sola solicitud pendiente a la vez.
+2. El **administrador** recibe un aviso **al instante** (Server-Sent Events) y un contador en **Usuarios**. Si no estaba conectado, lo ve al ingresar.
+3. En **Usuarios → Solicitudes de cambio de contraseña**, el administrador elige **Cambiar contraseña** (generar una temporal, por ejemplo `iQas-2297-Ba`, o escribirla) o **Descartar**. También puede cambiar la contraseña de cualquier usuario desde su fila.
+4. La contraseña nueva se guarda con **bcrypt**. Las sesiones abiertas del usuario se cierran ("Tu contraseña fue cambiada…") y la contraseña anterior deja de funcionar. La solicitud queda *Atendida* y el cambio, en el historial.
+
+Usa la tabla `solicitudes_contrasena`, que el backend **crea solo al iniciar** (no modifica datos). Si el usuario de MySQL no tiene permiso `CREATE`, la terminal lo indica: ejecutá `backend/sql/migraciones/002_solicitudes_contrasena.sql` (por ejemplo como `root`) y reiniciá el backend.
+
 ## Alertas de mantenimiento (Necesidad 4)
 
 El sistema avisa cuando un equipo **requiere mantenimiento**, para que el administrador actúe antes de que falle.
@@ -218,6 +227,9 @@ Correspondencia con las tablas existentes:
 | POST / PUT | `/api/equipos`, `/api/equipos/:id` | gestión, en sus laboratorios |
 | DELETE | `/api/equipos/:id` | administrador |
 | PATCH | `/api/usuarios/:id/bloqueo` | administrador |
+| POST | `/api/auth/recuperar` | público |
+| GET | `/api/usuarios/solicitudes` | administrador |
+| PATCH | `/api/usuarios/:id/contrasena`, `/api/usuarios/solicitudes/:id/descartar` | administrador |
 | DELETE | `/api/usuarios/:id` | administrador |
 | GET | `/api/alertas`, `/api/alertas/resumen` | administrador, directivo y gestión (por laboratorio) |
 | GET | `/api/alertas/stream` (eventos en tiempo real) | autenticado |

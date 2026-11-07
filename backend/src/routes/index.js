@@ -25,12 +25,16 @@ r.get('/health', async (_req, res) => {
 
 // Autenticacion
 r.post('/auth/login', h(auth.login));
+r.post('/auth/recuperar', h(auth.recuperar));
 r.get('/auth/me', autenticar, h(auth.me));
 
 // Usuarios y roles: solo el administrador
 const soloAdmin = [autenticar, permitirRoles(ROLES.ADMIN)];
 r.get('/roles/asignables', soloAdmin, h(usuarios.rolesAsignables));
 r.get('/usuarios', soloAdmin, h(usuarios.listar));
+r.get('/usuarios/solicitudes', soloAdmin, h(usuarios.listarSolicitudes));
+r.patch('/usuarios/solicitudes/:id/descartar', soloAdmin, h(usuarios.descartarSolicitud));
+r.patch('/usuarios/:id/contrasena', soloAdmin, h(usuarios.cambiarContrasena));
 r.post('/usuarios', soloAdmin, h(usuarios.crear));
 r.patch('/usuarios/:id/rol', soloAdmin, h(usuarios.actualizarRol));
 r.patch('/usuarios/:id/bloqueo', soloAdmin, h(usuarios.cambiarBloqueo));

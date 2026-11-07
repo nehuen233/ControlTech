@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api.js'
-import { Alerta, Badge, Cargando, Modal } from '../components/ui.jsx'
+import { Alerta, Badge, Cargando, Modal, fechaHora } from '../components/ui.jsx'
+import { useAlertas } from '../components/Alertas.jsx'
 
 // "Docente, Docente de laboratorio o Técnico", segun los roles que devuelve el backend.
 const listar = (roles, conj) => {
@@ -20,6 +21,13 @@ export default function Usuarios() {
   const cargar = useCallback(() => {
     api('/usuarios').then(setUsuarios).catch((e) => setError(e.message))
   }, [])
+
+  // Una solicitud nueva o atendida (en esta u otra ventana) actualiza la tabla.
+  useEffect(() => {
+    window.addEventListener('controltech:solicitudes', cargar)
+    return () => window.removeEventListener('controltech:solicitudes', cargar)
+  }, [cargar])
+  const { solicitudes } = useAlertas()
 
   useEffect(() => {
     cargar()
@@ -43,6 +51,28 @@ export default function Usuarios() {
       </div>
       <Alerta>{error}</Alerta>
       <Alerta tipo="ok" onClose={() => setAviso('')}>{aviso}</Alerta>
+      {solicitudes.length > 0 && (
+        <div className="panel-solicitudes" aria-label="Solicitudes de cambio de contraseña">
+          <h2>Solicitudes de cambio de contraseña <span className="contador-nav">{solicitudes.length}</span></h2>
+          <p className="texto-suave chico">Usuarios que eligieron "¿Olvidaste tu contraseña?". Cambiá la contraseña y comunicásela para que vuelvan a ingresar.</p>
+          <ul>
+            {solicitudes.map((sol) => (
+              <li key={sol.id_solicitud}>
+                <div>
+                  <strong>{sol.nombre} {sol.apellido}</strong> <span className="texto-suave chico">{sol.email}</span>
+                  {sol.bloqueado && <> <span className="badge badge-danger">Bloqueado</span></>}
+                  <div className="texto-suave chico">Pedido el {fechaHora(sol.fecha_solicitud)}</div>
+                  {sol.mensaje && <div className="chico mensaje-solicitud">"{sol.mensaje}"</div>}
+                </div>
+                <div className="acciones">
+                  <button type="button" className="btn btn-primario" onClick={() => setModal({ tipo: 'contrasena', usuario: { id_usuario: sol.id_usuario, nombre: sol.nombre, apellido: sol.apellido, email: sol.email, bloqueado: sol.bloqueado } })}>Cambiar contraseña</button>
+                  <button type="button" className="btn btn-secundario" onClick={() => setModal({ tipo: 'descartar', solicitud: sol })}>Descartar</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {usuarios && usuarios.length > 8 && (
         <label className="campo-busqueda">Buscar usuario
           <input type="search" value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Nombre, email o rol" />
@@ -58,12 +88,16 @@ export default function Usuarios() {
                   <td><strong>{u.nombre} {u.apellido}</strong></td>
                   <td>{u.email}</td>
                   <td>{u.rolEtiqueta}</td>
-                  <td>{u.bloqueado ? <span className="badge badge-danger">Bloqueado</span> : <Badge value="Activo" />}</td>
+                  <td>
+                    {u.bloqueado ? <span className="badge badge-danger">Bloqueado</span> : <Badge value="Activo" />}
+                    {u.solicitud_pendiente && <div><span className="badge badge-warn">Pidió nueva contraseña</span></div>}
+                  </td>
                   <td className="chico">{u.laboratorios || '—'}</td>
                   <td className="acciones-fila">
                     {u.protegido ? <span className="texto-suave chico">Cuenta protegida</span> : (
                       <>
                         {u.editable && <button type="button" className="btn-link" onClick={() => setModal({ tipo: 'rol', usuario: u })}>Asignar rol</button>}
+                        <button type="button" className="btn-link" onClick={() => setModal({ tipo: 'contrasena', usuario: u })}>Cambiar contraseña</button>
                         <button type="button" className="btn-link" onClick={() => setModal({ tipo: 'bloqueo', usuario: u })}>{u.bloqueado ? 'Desbloquear' : 'Bloquear'}</button>
                         <button type="button" className="btn-link peligro" onClick={() => setModal({ tipo: 'eliminar', usuario: u })}>Eliminar</button>
                       </>
@@ -76,6 +110,8 @@ export default function Usuarios() {
         </div>
       )}
       {(modal?.tipo === 'nuevo' || modal?.tipo === 'rol') && <FormUsuario roles={roles} labs={labs} usuario={modal.usuario} onClose={() => setModal(null)} onGuardado={guardado} />}
+      {modal?.tipo === 'contrasena' && <CambiarContrasena usuario={modal.usuario} onClose={() => setModal(null)} onListo={guardado} />}
+      {modal?.tipo === 'descartar' && <DescartarSolicitud solicitud={modal.solicitud} onClose={() => setModal(null)} onListo={guardado} />}
       {modal?.tipo === 'bloqueo' && <ConfirmarBloqueo usuario={modal.usuario} onClose={() => setModal(null)} onListo={guardado} />}
       {modal?.tipo === 'eliminar' && (
         <ConfirmarEliminar usuario={modal.usuario} onClose={() => setModal(null)} onListo={guardado}
@@ -244,6 +280,120 @@ function ConfirmarEliminar({ usuario: u, onClose, onListo, onBloquear }) {
             </div>
           </>
         )}
+      </div>
+    </Modal>
+  )
+}
+
+// El administrador asigna una contraseña nueva: escrita a mano o temporal generada por el sistema.
+function CambiarContrasena({ usuario: u, onClose, onListo }) {
+  const [modo, setModo] = useState('generar')
+  const [nueva, setNueva] = useState('')
+  const [repetir, setRepetir] = useState('')
+  const [ver, setVer] = useState(false)
+  const [error, setError] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [resultado, setResultado] = useState(null)
+  const [copiado, setCopiado] = useState(false)
+
+  const guardar = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (modo === 'escribir') {
+      if (nueva.length < 8) return setError('La contraseña debe tener al menos 8 caracteres.')
+      if (nueva !== repetir) return setError('Las contraseñas no coinciden.')
+    }
+    setEnviando(true)
+    try {
+      const r = await api(`/usuarios/${u.id_usuario}/contrasena`, { method: 'PATCH', body: modo === 'generar' ? { generar: true } : { contrasena: nueva } })
+      setResultado({ ...r, contrasena: r.contrasena_temporal || nueva })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setEnviando(false)
+    }
+  }
+  const copiar = async () => {
+    try { await navigator.clipboard.writeText(resultado.contrasena); setCopiado(true) } catch { setCopiado(false) }
+  }
+  const terminar = () => onListo(`Contraseña de ${u.email} cambiada.${resultado.solicitudes_atendidas ? ' Solicitud atendida.' : ''}`)
+
+  if (resultado) {
+    return (
+      <Modal titulo={`Contraseña de ${u.nombre} ${u.apellido} cambiada`} onClose={terminar} ancho="480px">
+        <div className="form">
+          <p>Comunicale a <strong>{u.nombre}</strong> su nueva contraseña para que vuelva a ingresar:</p>
+          <div className="contrasena-nueva">
+            <code>{resultado.contrasena}</code>
+            <button type="button" className="btn btn-secundario" onClick={copiar}>{copiado ? 'Copiada' : 'Copiar'}</button>
+          </div>
+          <ul className="lista-simple chico">
+            <li>Se guardó cifrada: no se va a volver a mostrar.</li>
+            <li>Si {u.nombre} tenía una sesión abierta, se cerró.</li>
+            {u.bloqueado && <li><strong>La cuenta sigue bloqueada:</strong> desbloqueala para que pueda ingresar.</li>}
+          </ul>
+          <div className="form-acciones">
+            <button type="button" className="btn btn-primario" onClick={terminar}>Listo</button>
+          </div>
+        </div>
+      </Modal>
+    )
+  }
+
+  return (
+    <Modal titulo={`Cambiar contraseña de ${u.nombre} ${u.apellido}`} onClose={onClose} ancho="480px">
+      <form className="form" onSubmit={guardar} noValidate>
+        <Alerta>{error}</Alerta>
+        <p className="texto-suave chico">{u.email}</p>
+        <fieldset>
+          <legend>Nueva contraseña</legend>
+          <label className="check"><input type="radio" name="modo" checked={modo === 'generar'} onChange={() => setModo('generar')} /> Generar una contraseña temporal</label>
+          <label className="check"><input type="radio" name="modo" checked={modo === 'escribir'} onChange={() => setModo('escribir')} /> Escribirla yo</label>
+        </fieldset>
+        {modo === 'escribir' && (
+          <>
+            <label>Contraseña nueva (mínimo 8 caracteres)
+              <input type={ver ? 'text' : 'password'} value={nueva} onChange={(e) => setNueva(e.target.value)} autoComplete="new-password" maxLength={72} />
+            </label>
+            <label>Repetir contraseña
+              <input type={ver ? 'text' : 'password'} value={repetir} onChange={(e) => setRepetir(e.target.value)} autoComplete="new-password" maxLength={72} />
+            </label>
+            <label className="check"><input type="checkbox" checked={ver} onChange={(e) => setVer(e.target.checked)} /> Mostrar contraseña</label>
+          </>
+        )}
+        <p className="texto-suave chico">Al guardar se cierran las sesiones abiertas de {u.nombre} y su solicitud pendiente queda atendida.</p>
+        <div className="form-acciones">
+          <button type="button" className="btn btn-secundario" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primario" disabled={enviando}>{enviando ? 'Guardando…' : 'Cambiar contraseña'}</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function DescartarSolicitud({ solicitud: s, onClose, onListo }) {
+  const [error, setError] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const descartar = async () => {
+    setEnviando(true)
+    try {
+      await api(`/usuarios/solicitudes/${s.id_solicitud}/descartar`, { method: 'PATCH', body: {} })
+      onListo(`Solicitud de ${s.email} descartada.`)
+    } catch (err) {
+      setError(err.message)
+      setEnviando(false)
+    }
+  }
+  return (
+    <Modal titulo="Descartar solicitud" onClose={onClose} ancho="440px">
+      <div className="form">
+        <Alerta>{error}</Alerta>
+        <p>¿Descartar la solicitud de cambio de contraseña de <strong>{s.nombre} {s.apellido}</strong>? Su contraseña no cambia.</p>
+        <p className="texto-suave chico">Usalo si la solicitud no la hizo esa persona o ya no hace falta.</p>
+        <div className="form-acciones">
+          <button type="button" className="btn btn-secundario" onClick={onClose}>Cancelar</button>
+          <button type="button" className="btn btn-peligro" onClick={descartar} disabled={enviando}>Descartar</button>
+        </div>
       </div>
     </Modal>
   )

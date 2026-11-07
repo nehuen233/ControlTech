@@ -30,8 +30,9 @@ pool.query('SELECT 1')
   .then(async () => {
     console.log(`Conectado a MySQL (${process.env.DB_NAME || 'controltecchh'})`);
     const esq = await asegurarEsquemaUnaVez();
-    if (esq.error) console.warn(`AVISO ${esq.error}`);
-    else console.log('Bloqueo de usuarios disponible.');
+    for (const e of Object.values(esq.errores)) console.warn(`AVISO ${e}`);
+    if (esq.bloqueo) console.log('Bloqueo de usuarios disponible.');
+    if (esq.solicitudes) console.log('Recuperación de contraseña disponible.');
     const creados = await asegurarRolesAsignables().catch((err) => {
       console.warn(`No se pudieron verificar los roles asignables: ${err.message}`);
       return 0;

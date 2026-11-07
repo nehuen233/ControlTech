@@ -13,11 +13,15 @@ const ordenar = (lista) => [...lista].sort((a, b) => (ORDEN_SEV[a.severidad] ?? 
 
 // Avisa a las paginas abiertas (por ejemplo Mantenimientos) que recarguen sus datos.
 const avisarCambio = () => window.dispatchEvent(new CustomEvent('controltech:alertas'))
+const avisarSolicitudes = () => window.dispatchEvent(new CustomEvent('controltech:solicitudes'))
 
 export function AlertasProvider({ children }) {
-  const { usuario, logout, puedeGestionar } = useAuth()
+  const { usuario, logout, puedeGestionar, esAdmin } = useAuth()
   const recibe = Boolean(usuario) && (puedeGestionar || usuario.rol === ROLES.DIRECTIVO)
   const [alertas, setAlertas] = useState([])
+  // Solicitudes de "¿Olvidaste tu contraseña?" pendientes (solo administrador).
+  const [solicitudes, setSolicitudes] = useState([])
+  const primeraSolicitudes = useRef(true)
   const [avisos, setAvisos] = useState([])
   const [conectado, setConectado] = useState(false)
   const primeraCarga = useRef(true)
@@ -42,9 +46,22 @@ export function AlertasProvider({ children }) {
     } catch { /* se reintenta en el proximo ciclo */ }
   }, [recibe, mostrarAviso])
 
+  const cargarSolicitudes = useCallback(async () => {
+    if (!esAdmin) return
+    try {
+      const lista = await api('/usuarios/solicitudes', { params: { estado: 'Pendiente' } })
+      setSolicitudes(lista)
+      if (primeraSolicitudes.current && lista.length) {
+        mostrarAviso({ tipo: 'resumen', titulo: `${lista.length} solicitud(es) de cambio de contraseña pendiente(s)`, detalle: 'Atendelas en Usuarios.' })
+      }
+      primeraSolicitudes.current = false
+    } catch { /* funcion no disponible o sin conexion: se reintenta */ }
+  }, [esAdmin, mostrarAviso])
+
   useEffect(() => {
-    if (!usuario) { setAlertas([]); primeraCarga.current = true; return undefined }
+    if (!usuario) { setAlertas([]); setSolicitudes([]); primeraCarga.current = true; primeraSolicitudes.current = true; return undefined }
     cargar()
+    cargarSolicitudes()
     const cortar = suscribirEventos((nombre, datos) => {
       if (nombre === 'alerta' && recibe) {
         setAlertas((v) => ordenar([datos, ...v.filter((a) => a.id_alerta !== datos.id_alerta)]))
@@ -57,20 +74,31 @@ export function AlertasProvider({ children }) {
       } else if (nombre === 'alerta-resuelta' && recibe) {
         setAlertas((v) => v.filter((a) => a.id_alerta !== datos.id_alerta))
         avisarCambio()
+      } else if (nombre === 'solicitud-contrasena' && esAdmin) {
+        setSolicitudes((v) => [datos, ...v.filter((x) => x.id_solicitud !== datos.id_solicitud)])
+        mostrarAviso({
+          tipo: 'solicitud', severidad: 'Media', titulo: `${datos.nombre} ${datos.apellido} · ${datos.email}`,
+          detalle: datos.mensaje ? `"${datos.mensaje}"` : 'Pide un cambio de contraseña para volver a ingresar.',
+        })
+        avisarSolicitudes()
+      } else if (nombre === 'solicitud-atendida' && esAdmin) {
+        setSolicitudes((v) => v.filter((x) => x.id_solicitud !== datos.id_solicitud))
+        avisarSolicitudes()
       } else if (nombre === 'sesion') {
         logout(datos.motivo)
       }
     }, setConectado)
-    const respaldo = recibe ? setInterval(cargar, RESPALDO_MS) : null
+    const respaldo = recibe ? setInterval(() => { cargar(); cargarSolicitudes() }, RESPALDO_MS) : null
     return () => { cortar(); if (respaldo) clearInterval(respaldo) }
-  }, [usuario, recibe, cargar, mostrarAviso, logout])
+  }, [usuario, recibe, cargar, cargarSolicitudes, mostrarAviso, logout])
 
   // Contador en el titulo de la pestaña, visible aunque la ventana este en segundo plano.
   useEffect(() => {
     document.title = alertas.length && recibe ? `(${alertas.length}) ControlTech` : 'ControlTech'
   }, [alertas.length, recibe])
 
-  const value = useMemo(() => ({ alertas, recibe, conectado, recargar: cargar }), [alertas, recibe, conectado, cargar])
+  const value = useMemo(() => ({ alertas, recibe, conectado, recargar: cargar, solicitudes, recargarSolicitudes: cargarSolicitudes }),
+    [alertas, recibe, conectado, cargar, solicitudes, cargarSolicitudes])
   return (
     <AlertasContext.Provider value={value}>
       {children}
@@ -78,8 +106,9 @@ export function AlertasProvider({ children }) {
         {avisos.map((a) => (
           <div key={a.id} className={`aviso aviso-${a.severidad || 'info'}`} role="status">
             <div>
-              <strong>{a.tipo === 'alerta' ? 'Nueva alerta de mantenimiento' : a.titulo}</strong>
-              {a.tipo === 'alerta' && <div>{a.titulo}</div>}
+              <strong>{a.tipo === 'alerta' ? 'Nueva alerta de mantenimiento' : a.tipo === 'solicitud' ? 'Solicitud de cambio de contraseña' : a.titulo}</strong>
+              {(a.tipo === 'alerta' || a.tipo === 'solicitud') && <div>{a.titulo}</div>}
+              {a.tipo === 'solicitud' && <a href="#/usuarios" className="chico">Atender en Usuarios</a>}
               <div className="texto-suave chico">{a.detalle}</div>
             </div>
             <button type="button" className="btn-link cerrar" aria-label="Cerrar aviso" onClick={() => cerrarAviso(a.id)}>×</button>

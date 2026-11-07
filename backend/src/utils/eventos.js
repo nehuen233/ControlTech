@@ -2,7 +2,8 @@
 // conexion y el servidor le envia lo que le corresponde segun su rol y sus laboratorios.
 //   alerta           -> nueva alerta de mantenimiento (admin, directivo y roles de gestion)
 //   alerta-resuelta  -> una alerta dejo de estar activa
-//   sesion           -> la cuenta fue bloqueada o eliminada: la ventana debe cerrar sesion
+//   sesion           -> la cuenta fue bloqueada o eliminada, o cambio su contraseña: la ventana debe cerrar sesion
+//   solicitud-contrasena / solicitud-atendida -> pedidos de "¿Olvidaste tu contraseña?" (solo administradores)
 const { ROLES, ROLES_TODOS_LOS_LABS, ROLES_GESTION_MANTENIMIENTO } = require('./roles');
 
 const clientes = new Set();
@@ -43,6 +44,11 @@ function emitirAlerta(evento, alerta) {
   }
 }
 
+// Eventos solo para las ventanas de administradores.
+function emitirAdmins(evento, datos) {
+  for (const c of clientes) if (c.user.rol === ROLES.ADMIN) enviar(c, evento, datos);
+}
+
 // Avisa a todas las ventanas de un usuario y cierra sus conexiones.
 function cerrarSesionesDe(idUsuario, motivo) {
   for (const c of clientes) {
@@ -56,4 +62,4 @@ function cerrarSesionesDe(idUsuario, motivo) {
 
 const conectados = () => [...clientes].map((c) => ({ usuario: c.user.id, rol: c.user.rol }));
 
-module.exports = { suscribir, emitirAlerta, cerrarSesionesDe, conectados, ROLES };
+module.exports = { suscribir, emitirAlerta, emitirAdmins, cerrarSesionesDe, conectados, ROLES };

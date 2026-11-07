@@ -16,4 +16,16 @@ async function verificarContrasena(ingresada, almacenada) {
 
 const hashContrasena = (plano) => bcrypt.hash(plano, 10);
 
-module.exports = { verificarContrasena, hashContrasena };
+// Huella corta de la contraseña guardada: viaja en el token de sesion. Si el administrador
+// cambia la contraseña, la huella deja de coincidir y las sesiones anteriores se cierran.
+const huellaContrasena = (almacenada) => crypto.createHash('sha256').update(String(almacenada)).digest('hex').slice(0, 16);
+
+// Contraseña temporal legible para que el administrador se la comunique al usuario.
+function generarTemporal() {
+  const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
+  const numeros = '23456789';
+  const elegir = (set, n) => Array.from({ length: n }, () => set[crypto.randomInt(set.length)]).join('');
+  return `${elegir(letras, 4)}-${elegir(numeros, 4)}-${elegir(letras, 2)}`;
+}
+
+module.exports = { verificarContrasena, hashContrasena, huellaContrasena, generarTemporal };

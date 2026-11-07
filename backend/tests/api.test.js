@@ -986,6 +986,112 @@ test('alertas automáticas: preventivo vencido y mantenimiento programado sin re
   assert.ok(!r3.data.alertas.some((x) => x.id_equipo === viejo.id_equipo));
 });
 
+// ---------------- Recuperacion de contraseña ----------------
+test('¿Olvidaste tu contraseña?: respuesta que no revela cuentas, una solicitud por usuario y aviso en vivo al administrador', async () => {
+  const u = await usuarioNuevo('olvido', [await idLab('Laboratorio 4-1')]);
+  const vAdmin = escuchar(admin.token);
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  const vMaria = escuchar(maria.token);
+  await esperar(() => vAdmin.eventos.some((e) => e.ev === 'conectado') && vMaria.eventos.some((e) => e.ev === 'conectado'));
+
+  assert.equal((await call('/auth/recuperar', { method: 'POST', body: { email: 'no-es-email' } })).status, 400);
+  const inexistente = await call('/auth/recuperar', { method: 'POST', body: { email: `nadie.${SUFIJO}@test.controltech` } });
+  const deAdmin = await call('/auth/recuperar', { method: 'POST', body: { email: 'ADMIN@controltech.com' } });
+  const valido = await call('/auth/recuperar', { method: 'POST', body: { email: u.email.toUpperCase(), mensaje: 'No recuerdo la clave' } });
+  for (const r of [inexistente, deAdmin, valido]) assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(inexistente.data.mensaje, valido.data.mensaje, 'la misma respuesta exista o no la cuenta');
+  assert.equal(deAdmin.data.mensaje, valido.data.mensaje);
+  const [[adm]] = await db.query("SELECT COUNT(*) AS n FROM solicitudes_contrasena s JOIN usuarios x USING (id_usuario) WHERE x.email = 'admin@controltech.com'");
+  assert.equal(Number(adm.n), 0, 'el administrador no genera solicitudes');
+
+  const llego = await esperar(() => vAdmin.eventos.find((e) => e.ev === 'solicitud-contrasena' && e.datos.email === u.email));
+  assert.ok(llego, 'el administrador recibe la solicitud al instante');
+  assert.equal(llego.datos.mensaje, 'No recuerdo la clave');
+  await new Promise((ok) => setTimeout(ok, 200));
+  assert.ok(!vMaria.eventos.some((e) => e.ev === 'solicitud-contrasena'), 'solo los administradores reciben las solicitudes');
+
+  const otra = await call('/auth/recuperar', { method: 'POST', body: { email: u.email, mensaje: 'Sigo sin poder entrar' } });
+  assert.equal(otra.status, 200);
+  const [pend] = await db.query("SELECT mensaje FROM solicitudes_contrasena WHERE id_usuario = ? AND estado = 'Pendiente'", [u.id_usuario]);
+  assert.equal(pend.length, 1, 'una sola solicitud pendiente por usuario');
+  assert.equal(pend[0].mensaje, 'Sigo sin poder entrar');
+  const limite = await call('/auth/recuperar', { method: 'POST', body: { email: u.email } });
+  assert.equal(limite.status, 200);
+  const bloqueadoPorLimite = await call('/auth/recuperar', { method: 'POST', body: { email: u.email } });
+  assert.equal(bloqueadoPorLimite.status, 429, 'más de 3 solicitudes del mismo email en 15 minutos');
+
+  const lista = await call('/usuarios/solicitudes', { token: admin.token });
+  assert.equal(lista.status, 200);
+  assert.ok(lista.data.some((x) => x.id_usuario === u.id_usuario && x.estado === 'Pendiente'));
+  assert.equal((await call('/usuarios/solicitudes', { token: maria.token })).status, 403);
+  const usuarios = await call('/usuarios', { token: admin.token });
+  assert.ok(usuarios.data.find((x) => x.id_usuario === u.id_usuario).solicitud_pendiente, 'la tabla de usuarios marca la solicitud');
+  vAdmin.cerrar();
+  vMaria.cerrar();
+});
+
+test('el administrador cambia la contraseña: la nueva funciona, la anterior no y la sesión abierta se cierra', async () => {
+  const u = await usuarioNuevo('cambio', [await idLab('Laboratorio 4-2')]);
+  const sesion = await login(u.email, u.clave);
+  const ventana = escuchar(sesion.token);
+  const vAdmin = escuchar(admin.token);
+  await esperar(() => ventana.eventos.some((e) => e.ev === 'conectado') && vAdmin.eventos.some((e) => e.ev === 'conectado'));
+  await call('/auth/recuperar', { method: 'POST', body: { email: u.email } });
+  const [[sol]] = await db.query("SELECT id_solicitud FROM solicitudes_contrasena WHERE id_usuario = ? AND estado = 'Pendiente'", [u.id_usuario]);
+
+  const maria = await login('maria@suiza26.edu', 'demo123');
+  assert.equal((await call(`/usuarios/${u.id_usuario}/contrasena`, { method: 'PATCH', token: maria.token, body: { generar: true } })).status, 403);
+  assert.equal((await call(`/usuarios/${adminAntes.id_usuario}/contrasena`, { method: 'PATCH', token: admin.token, body: { generar: true } })).status, 403, 'no desde este panel para el administrador');
+  assert.equal((await call(`/usuarios/${u.id_usuario}/contrasena`, { method: 'PATCH', token: admin.token, body: { contrasena: 'corta' } })).status, 400);
+
+  const r = await call(`/usuarios/${u.id_usuario}/contrasena`, { method: 'PATCH', token: admin.token, body: { generar: true } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const temporal = r.data.contrasena_temporal;
+  assert.match(temporal, /^[A-Za-z]{4}-\d{4}-[A-Za-z]{2}$/);
+  assert.equal(r.data.solicitudes_atendidas, 1);
+
+  const cierre = await esperar(() => ventana.eventos.find((e) => e.ev === 'sesion'));
+  assert.ok(cierre, 'la ventana abierta del usuario se cierra');
+  assert.match(cierre.datos.motivo, /contraseña fue cambiada/);
+  ventana.cerrar();
+  assert.ok(await esperar(() => vAdmin.eventos.find((e) => e.ev === 'solicitud-atendida' && e.datos.id_solicitud === sol.id_solicitud)), 'las ventanas del administrador se actualizan');
+  vAdmin.cerrar();
+
+  const vieja = await call('/laboratorios', { token: sesion.token });
+  assert.equal(vieja.status, 401, 'la sesión anterior ya no sirve');
+  assert.match(vieja.data.error, /contraseña fue cambiada/);
+  assert.equal((await call('/auth/login', { method: 'POST', body: { email: u.email, contrasena: u.clave } })).status, 401, 'la contraseña anterior no funciona');
+  assert.equal((await login(u.email, temporal)).usuario.email, u.email, 'la nueva sí');
+  const [[guardada]] = await db.query('SELECT contrasena FROM usuarios WHERE id_usuario = ?', [u.id_usuario]);
+  assert.match(guardada.contrasena, /^\$2[aby]\$10\$/, 'se guarda con bcrypt');
+  assert.ok(!guardada.contrasena.includes(temporal));
+  const [[est]] = await db.query('SELECT estado, id_atendida_por FROM solicitudes_contrasena WHERE id_solicitud = ?', [sol.id_solicitud]);
+  assert.equal(est.estado, 'Atendida');
+  assert.equal(est.id_atendida_por, adminAntes.id_usuario);
+
+  // Contraseña escrita por el administrador.
+  const r2 = await call(`/usuarios/${u.id_usuario}/contrasena`, { method: 'PATCH', token: admin.token, body: { contrasena: 'NuevaClave2026' } });
+  assert.equal(r2.status, 200);
+  assert.equal(r2.data.contrasena_temporal, undefined, 'una contraseña escrita no se devuelve');
+  assert.ok((await login(u.email, 'NuevaClave2026')).token);
+});
+
+test('descartar una solicitud no cambia la contraseña; borrar el usuario borra sus solicitudes', async () => {
+  const u = await usuarioNuevo('descarte', [await idLab('Laboratorio 5-1')]);
+  await call('/auth/recuperar', { method: 'POST', body: { email: u.email } });
+  const [[sol]] = await db.query("SELECT id_solicitud FROM solicitudes_contrasena WHERE id_usuario = ? AND estado = 'Pendiente'", [u.id_usuario]);
+  const d = await call(`/usuarios/solicitudes/${sol.id_solicitud}/descartar`, { method: 'PATCH', token: admin.token, body: {} });
+  assert.equal(d.status, 200);
+  assert.equal((await call(`/usuarios/solicitudes/${sol.id_solicitud}/descartar`, { method: 'PATCH', token: admin.token, body: {} })).status, 409);
+  assert.ok((await login(u.email, u.clave)).token, 'la contraseña no cambió');
+
+  await call('/auth/recuperar', { method: 'POST', body: { email: u.email } });
+  const del = await call(`/usuarios/${u.id_usuario}`, { method: 'DELETE', token: admin.token });
+  assert.equal(del.status, 200, JSON.stringify(del.data));
+  const [[q]] = await db.query('SELECT COUNT(*) AS n FROM solicitudes_contrasena WHERE id_usuario = ?', [u.id_usuario]);
+  assert.equal(Number(q.n), 0);
+});
+
 // ---------------- Conservacion de datos ----------------
 test('se conservan los mantenimientos anteriores y la cuenta del administrador', async () => {
   const [despues] = await db.query('SELECT * FROM mantenimientos WHERE id_mantenimiento IN (?) ORDER BY id_mantenimiento', [mantenimientosAntes.map((m) => m.id_mantenimiento)]);

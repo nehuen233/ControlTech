@@ -7,7 +7,7 @@ import Equipos from './pages/Equipos.jsx'
 import Mantenimientos from './pages/Mantenimientos.jsx'
 import Usuarios from './pages/Usuarios.jsx'
 import { Cargando } from './components/ui.jsx'
-import { Campana } from './components/Alertas.jsx'
+import { Campana, useAlertas } from './components/Alertas.jsx'
 
 // Navegacion principal. "Mantenimientos" reemplaza a las antiguas secciones separadas
 // de equipos con problemas y mantenimientos.
@@ -23,6 +23,7 @@ const leerHash = () => window.location.hash.replace(/^#\/?/, '') || 'inicio'
 
 export default function App() {
   const { usuario, cargando, logout, esAdmin } = useAuth()
+  const { solicitudes } = useAlertas()
   const [ruta, setRuta] = useState(leerHash)
   const [menuAbierto, setMenuAbierto] = useState(false)
 
@@ -50,6 +51,9 @@ export default function App() {
           {visibles.map((s) => (
             <a key={s.id} href={`#/${s.id}`} className={s.id === actual.id ? 'activo' : ''} aria-current={s.id === actual.id ? 'page' : undefined}>
               {s.titulo}
+              {s.id === 'usuarios' && solicitudes.length > 0 && (
+                <span className="contador-nav" title="Solicitudes de cambio de contraseña pendientes" aria-label={`${solicitudes.length} solicitudes de cambio de contraseña pendientes`}>{solicitudes.length}</span>
+              )}
             </a>
           ))}
         </nav>
