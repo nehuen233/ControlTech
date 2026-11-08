@@ -4,7 +4,7 @@
 -- colegios ni datos: el SUPERADMIN (SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD del .env)
 -- lo crea el backend al iniciar, y desde el sistema da de alta cada institución con su
 -- primer administrador. Los datos de demostración se cargan aparte, en la institución
--- "Demo": `npm run db:demo` (backend) o el archivo "CONTROL TECH INSERTS.sql".
+-- "Demo": `npm run db:demo` (backend) (el archivo "CONTROL TECH INSERTS.sql" es histórico, del esquema anterior).
 --
 -- Una base EXISTENTE (versión de un solo colegio) NO se recrea con este archivo:
 -- el backend la migra solo al iniciar (backend/src/config/migracion003.js).
