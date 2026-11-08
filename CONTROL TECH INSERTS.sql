@@ -1,3 +1,12 @@
+-- ============================================================================
+-- ARCHIVO HISTÓRICO (esquema anterior a la multi-institución, migración 003).
+-- Sus INSERT no indican id_institucion y fallan sobre la base actual.
+-- Para tener datos de ejemplo usá:  cd backend && npm run db:demo
+-- (crea la institución "Demo" con laboratorios, equipos, software y usuarios).
+-- Se conserva como referencia y lo usan las pruebas de migración
+-- (backend/tests/fixtures/v1_datos.sql).
+-- ============================================================================
+
 
 USE controltecchh;
 START TRANSACTION;

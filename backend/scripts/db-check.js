@@ -38,7 +38,7 @@ async function probarCredenciales(email, contrasena) {
   return false;
 }
 
-const TABLAS = ['roles', 'laboratorios', 'usuarios', 'usuario_laboratorio', 'equipos', 'software',
+const TABLAS = ['instituciones', 'roles', 'laboratorios', 'usuarios', 'usuario_laboratorio', 'equipos', 'software',
   'equipo_software', 'licencias', 'mantenimientos', 'alertas', 'historial_acciones', 'reportes'];
 
 (async () => {
@@ -59,15 +59,32 @@ const TABLAS = ['roles', 'laboratorios', 'usuarios', 'usuario_laboratorio', 'equ
       }
       console.log(`OK  Registros: ${Object.entries(conteo).map(([t, n]) => `${n} ${t}`).join(', ')}`);
       if (!conteo.laboratorios || !conteo.equipos) {
-        console.log('AVISO No hay laboratorios o equipos cargados. Ejecutá "npm run db:cargar" para cargarlos desde los datos del repositorio.');
+        console.log('AVISO No hay laboratorios o equipos cargados. Para probar el sistema con datos de ejemplo ejecutá "npm run db:demo" (crea la institución Demo).');
       }
     }
-    const [admins] = await pool.query("SELECT u.email FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE r.nombre_rol = 'ADMINISTRADOR'");
-    console.log(admins.length ? `OK  Administrador: ${admins.map((a) => a.email).join(', ')}` : 'ERR No hay ningún usuario ADMINISTRADOR');
+    let admins = [];
+    let superadmins = [];
+    if (!faltan.length) {
+      const [inst] = await pool.query(
+        `SELECT i.id_institucion, i.nombre, i.estado,
+                (SELECT COUNT(*) FROM usuarios u WHERE u.id_institucion = i.id_institucion) AS usuarios,
+                (SELECT COUNT(*) FROM laboratorios l WHERE l.id_institucion = i.id_institucion) AS laboratorios,
+                (SELECT COUNT(*) FROM equipos e WHERE e.id_institucion = i.id_institucion) AS equipos
+           FROM instituciones i ORDER BY i.id_institucion`,
+      );
+      console.log(inst.length ? `OK  Instituciones: ${inst.length}` : 'AVISO No hay instituciones: el superadministrador las da de alta desde la sección Instituciones.');
+      for (const i of inst) console.log(`      ${String(i.id_institucion).padStart(3)}  ${i.nombre} [${i.estado}] - ${i.usuarios} usuarios, ${i.laboratorios} laboratorios, ${i.equipos} equipos`);
+      [admins] = await pool.query("SELECT u.email, i.nombre AS institucion FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol LEFT JOIN instituciones i ON i.id_institucion = u.id_institucion WHERE r.nombre_rol = 'ADMINISTRADOR'");
+      [superadmins] = await pool.query("SELECT u.email FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE r.nombre_rol = 'SUPERADMIN'");
+      console.log(superadmins.length ? `OK  Superadministrador: ${superadmins.map((a) => a.email).join(', ')}` : 'AVISO No hay SUPERADMIN: configurá SUPERADMIN_EMAIL y SUPERADMIN_PASSWORD en backend/.env y reiniciá el backend.');
+      if (admins.length) console.log(`OK  Administradores: ${admins.map((a) => `${a.email} (${a.institucion || 'sin institución'})`).join(', ')}`);
+    } else {
+      console.log('AVISO Iniciá el backend para aplicar las migraciones (o ejecutá backend/sql/migraciones/*.sql).');
+    }
     let credOk = true;
     const [email, contrasena] = process.argv.slice(2);
     if (email) credOk = await probarCredenciales(email, contrasena ?? '');
-    process.exitCode = faltan.length || !admins.length || !credOk ? 1 : 0;
+    process.exitCode = faltan.length || (!admins.length && !superadmins.length) || !credOk ? 1 : 0;
   } catch (err) {
     console.error(`ERR ${explicarErrorMySQL(err)}`);
     process.exitCode = 1;
