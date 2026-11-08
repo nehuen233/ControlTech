@@ -56,7 +56,9 @@ export async function api(path, { method = 'GET', body, params } = {}) {
     throw new ApiError(404, 'El backend no reconoce esta función: probablemente está corriendo una versión anterior. Reinicialo (Ctrl+C y "npm start" en la carpeta backend) y recargá la página.')
   }
   if (!res.ok) {
-    if (res.status === 401 && path !== '/auth/login') onUnauthorized(data?.error)
+    // 401: sesion invalida. 403 INSTITUCION_SUSPENDIDA: la plataforma suspendio el colegio
+    // mientras la sesion estaba abierta. En ambos casos se vuelve al inicio de sesion.
+    if (path !== '/auth/login' && (res.status === 401 || data?.detalles?.codigo === 'INSTITUCION_SUSPENDIDA')) onUnauthorized(data?.error)
     throw new ApiError(res.status, data?.error || `Error ${res.status}`, data?.detalles)
   }
   return data
@@ -77,9 +79,9 @@ export function suscribirEventos(onEvento, onEstado = () => {}) {
           headers: { Accept: 'text/event-stream', Authorization: `Bearer ${getToken()}` },
           signal: controlador.signal,
         })
-        if (res.status === 401) {
+        if (res.status === 401 || res.status === 403) {
           const d = await res.json().catch(() => null)
-          onUnauthorized(d?.error)
+          if (res.status === 401 || d?.detalles?.codigo === 'INSTITUCION_SUSPENDIDA') onUnauthorized(d?.error)
           return
         }
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)

@@ -1,45 +1,105 @@
 # ControlTech
 
-Sistema de gestión de laboratorios, equipos y mantenimientos.
+Sistema de gestión de laboratorios, equipos y mantenimientos para **varios colegios**: una
+sola base y un solo backend atienden a todas las instituciones, y cada una ve únicamente sus
+propios datos.
 
 | Capa | Tecnología | Carpeta |
 |---|---|---|
-| Base de datos | MySQL 8 | `BD CONTROLTECH.sql`, `CONTROL TECH INSERTS.sql` |
+| Base de datos | MySQL 8 | `BD CONTROLTECH.sql` + migraciones en `backend/sql/migraciones/` |
 | Backend | JavaScript + Express | `backend/` |
 | Frontend | React + CSS (Vite) | `frontend/` |
 
-El backend usa **exactamente** el esquema de `BD CONTROLTECH.sql` (base `controltecchh`): no crea, elimina ni altera tablas.
+Las reglas para trabajar en el código (aislamiento, migraciones, pruebas) están en [`CLAUDE.md`](CLAUDE.md).
+
+## Instituciones (multi-colegio)
+
+Una **institución** es un colegio que usa ControlTech. Cada una tiene sus propios usuarios,
+laboratorios, equipos, software, licencias, mantenimientos, alertas e historial.
+
+- **Aislamiento**: el backend toma la institución del usuario desde la base en cada petición
+  (nunca del navegador). Un recurso de otra institución responde *404 no existe*, los listados
+  solo muestran lo propio y los avisos en tiempo real solo llegan a la misma institución.
+- **Nombres por institución**: dos colegios pueden tener un "Laboratorio 1" o una "PC-01". El
+  email de cada usuario sí es único en toda la plataforma (se ingresa con el email).
+- **Estados**: *Prueba* (recién creada, con fecha de fin opcional), *Activa* y *Suspendida*. Con
+  la institución suspendida sus usuarios no pueden ingresar y las sesiones abiertas se cierran
+  en el momento; sus datos no se borran y vuelven al reactivarla.
+- **Superadministrador (SUPERADMIN)**: administra la plataforma. No pertenece a ningún colegio y
+  no ve sus datos internos: solo la sección **Instituciones** (alta, estado y totales).
+- **Administrador de cada colegio**: lo crea el SUPERADMIN junto con la institución. Al ingresar
+  por primera vez ve el aviso *"Completá la configuración inicial de tu institución"* para
+  revisar nombre, CUIT, dirección y contacto. Desde ahí gestiona su colegio como siempre.
+
+### Dar de alta un colegio
+
+1. Configurá `SUPERADMIN_EMAIL` y `SUPERADMIN_PASSWORD` en `backend/.env` y reiniciá el backend:
+   si ese usuario no existe, se crea al iniciar.
+2. Ingresá con esas credenciales → sección **Instituciones** → **Nueva institución**.
+3. Completá el nombre del colegio y los datos de su **primer administrador** (nombre, email y
+   contraseña inicial). La institución queda en estado *Prueba*.
+4. Pasale al administrador su email y contraseña: al ingresar completa la configuración inicial
+   y carga laboratorios, equipos y usuarios.
+5. Con **Cambiar estado** la pasás a *Activa* o la suspendés.
 
 ## 1. Base de datos
 
-Si la base todavía no existe:
+### Instalación nueva
 
 ```bash
 mysql -u root -p < "BD CONTROLTECH.sql"
-mysql -u root -p < "CONTROL TECH INSERTS.sql"
 ```
 
-Si ya existe (con el administrador cargado) **no** vuelvas a ejecutar estos scripts: duplicarían registros.
-
-### Datos iniciales (laboratorios y computadoras)
-
-No hace falta cargarlos a mano: **al iniciar, el backend crea lo que falte** (ver *Laboratorios iniciales y sus computadoras*). Para cargar además las asignaciones de los usuarios de demostración y desactivar el Laboratorio 4-4:
+La base nace **sin colegios ni datos**. Al iniciar, el backend crea el SUPERADMIN y desde el
+sistema se dan de alta las instituciones. Para probar con datos de ejemplo:
 
 ```bash
 cd backend
-npm run db:cargar
+npm run db:demo
 ```
 
-Solo agrega lo que falta y se puede repetir sin duplicar nada. No crea ni modifica usuarios (el administrador queda intacto). `npm run db:check` muestra cuántos laboratorios y equipos tiene la base.
+Crea (si no existe) la institución **"Colegio Demo"** con 5 laboratorios, 66 computadoras propias
+de cada laboratorio, software, licencias, algunos mantenimientos y alertas, y usuarios de ejemplo
+(`admin@demo.controltech`, `carlos@` y `diego@` técnicos, `pedro@` docente, `maria@` y `sofia@`
+docentes de laboratorio, todos `@demo.controltech`). Las contraseñas se muestran **una sola vez**
+al crearlos (o se toman de `DEMO_ADMIN_PASSWORD` / `DEMO_USUARIOS_PASSWORD`). Se puede repetir:
+solo agrega lo que falta y nunca toca otra institución.
+
+### Base existente (versión de un solo colegio): migración
+
+**No** vuelvas a ejecutar `BD CONTROLTECH.sql` sobre una base con datos. Alcanza con actualizar el
+código y reiniciar el backend: la **migración 003** se aplica sola al iniciar y
+
+- crea la tabla `instituciones` y la institución **1** (nombre de `INSTITUCION_INICIAL_NOMBRE`,
+  por defecto "Institución principal"), en estado *Activa* y ya configurada;
+- agrega `id_institucion` a las tablas y asigna **todos los datos existentes a la institución 1**
+  (el administrador conserva su email, contraseña y rol);
+- cambia las unicidades a "por institución" y agrega las claves foráneas que impiden mezclar
+  colegios; crea el rol SUPERADMIN y su usuario.
+
+Es idempotente (se puede cortar y volver a correr) y no borra datos. Si el usuario de MySQL del
+`.env` no tiene permisos `ALTER`, `CREATE`, `INDEX` y `REFERENCES`, el backend lo avisa al iniciar:
+ejecutá entonces `backend/sql/migraciones/003_multi_institucion.sql` con `root` y reiniciá.
+Antes de migrar una base en uso, hacé un respaldo (`mysqldump controltecchh > respaldo.sql`).
+`npm run db:check` muestra después las instituciones con sus totales.
 
 ## 2. Backend (Express)
 
 ```bash
 cd backend
 npm install
-cp .env.example .env   # editar DB_USER, DB_PASSWORD, DB_NAME y JWT_SECRET
+cp .env.example .env   # editar DB_*, JWT_SECRET y SUPERADMIN_*
 npm start              # http://localhost:4000/api
 ```
+
+Variables de `backend/.env` relacionadas con las instituciones:
+
+| Variable | Para qué |
+|---|---|
+| `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD` | Superadministrador de la plataforma; se crea al iniciar si no existe (contraseña de 8+ caracteres). También lo usan las pruebas. |
+| `INSTITUCION_INICIAL_NOMBRE` | Nombre de la institución 1 al migrar una base de un solo colegio. |
+| `DEMO_ADMIN_EMAIL`, `DEMO_ADMIN_PASSWORD`, `DEMO_USUARIOS_PASSWORD` | Opcionales, para `npm run db:demo`. |
+| `TEST_MYSQL_ADMIN_USER`, `TEST_MYSQL_ADMIN_PASSWORD` | Opcionales: usuario que puede crear bases `ct_prueba_*` para la prueba de migración. |
 
 `GET http://localhost:4000/api/health` responde `{"ok":true,"db":"conectada"}` si la conexión con MySQL funciona.
 
@@ -83,14 +143,24 @@ Vite redirige `/api` al backend en `http://127.0.0.1:4000` (configurable con `VI
 
 ## 4. Pruebas
 
-Con el backend en ejecución:
+Con MySQL y el backend en ejecución, y `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` en `backend/.env`:
 
 ```bash
 cd backend
 npm test
 ```
 
-Son pruebas de integración contra la API y MySQL reales. **Agregan** registros de prueba (usuarios `*@test.controltech`, mantenimientos y problemas); ejecutarlas sobre una base de desarrollo.
+Son pruebas de integración contra la API y MySQL reales:
+
+- `api.test.js`: cada corrida crea **su propia institución** (por la API del SUPERADMIN), le carga
+  los datos de demostración y prueba todas las funciones; al final verifica que ninguna otra
+  institución cambió.
+- `instituciones.test.js`: aislamiento entre dos instituciones A y B (listar, ver, crear, modificar
+  y borrar), unicidades por institución, eventos en tiempo real, suspensión y SUPERADMIN.
+- `migracion.test.js`: migra una copia del esquema anterior (`tests/fixtures`) en una base
+  descartable. Se omite si no hay `TEST_MYSQL_ADMIN_USER`.
+
+Las pruebas **agregan** instituciones y registros de prueba: ejecutarlas sobre una base de desarrollo.
 
 ## Roles y permisos (validados en Express)
 
@@ -103,13 +173,14 @@ Son pruebas de integración contra la API y MySQL reales. **Agregan** registros 
 | Docente | Asignados | Consulta y reporta problemas | — |
 
 - Al registrar o reasignar usuarios solo se aceptan **Docente**, **Docente de laboratorio** y **Técnico**; Administrador, Encargado y Directivo se rechazan con `403`, aunque se envíen directo a la API.
-- Si la base se creó solo con `BD CONTROLTECH.sql` (que no incluye TECNICO ni DOCENTE DE LABORATORIO), el backend agrega esos roles a la tabla `roles` al iniciar, sin duplicar ni modificar los existentes.
-- La cuenta del administrador está protegida: no se puede cambiar su rol, ni duplicar su email, ni crear otro administrador. No existe un endpoint para eliminar usuarios.
+- Si a la tabla `roles` le faltan TECNICO o DOCENTE DE LABORATORIO, el backend los agrega al iniciar, sin duplicar ni modificar los existentes.
+- Todos los roles trabajan **dentro de su institución**: "todos los laboratorios" del administrador y el directivo son los de su colegio.
+- La cuenta del administrador está protegida: no se puede cambiar su rol, bloquear ni eliminar desde el panel. Los administradores de cada colegio los crea el SUPERADMIN.
 - Las cuentas cargadas por los scripts SQL guardan la contraseña en texto plano; el login las acepta sin modificarlas. Las cuentas nuevas se guardan con hash bcrypt.
 
-## Laboratorios iniciales y sus computadoras
+## Datos de demostración (institución Demo)
 
-Al iniciar, el backend verifica los datos de `backend/src/config/datosIniciales.js` y crea lo que falte:
+`npm run db:demo` usa `backend/src/config/datosDemo.js`. Ningún colegio recibe datos automáticamente.
 
 | Laboratorio | Computadoras | Equipamiento | Software |
 |---|---|---|---|
@@ -119,12 +190,8 @@ Al iniciar, el backend verifica los datos de `backend/src/config/datosIniciales.
 | 5-1 (programación web) | 15 · PC-5A-01 a 15 | Dell OptiPlex 7090 Tower (i7) | Chrome, VS Code, GitHub Desktop, XAMPP |
 | 5-2 (desarrollo avanzado) | 13 · PC-5B-01 a 13 | Lenovo ThinkCentre M90t / ThinkStation P350 | Chrome, Office 365, VS Code, Visual Studio 2022, GitHub Desktop |
 
-Cada laboratorio tiene su propio equipamiento, cantidad, estados y software (en `CONTROL TECH INSERTS.sql` las 12 computadoras eran idénticas en todos los laboratorios). Reglas:
-
-- Laboratorios y software se identifican por nombre; computadoras por identificador y número de serie. **Nada se duplica ni se borra**, y no se vuelven a crear laboratorios ni computadoras que el administrador eliminó.
-- Las computadoras de un laboratorio solo se cargan si ese laboratorio no tiene equipos cargados a mano.
-- Las computadoras de demostración anteriores (las idénticas del script) se actualizan con los datos de su laboratorio **solo si nadie las modificó**, conservando su id: sus mantenimientos, alertas e historial siguen vinculados. Si se les cambió el software, se conserva ese software.
-- El administrador puede crear más laboratorios o eliminarlos (un laboratorio inicial eliminado no se vuelve a crear). El Laboratorio 4-4 ya no forma parte de los datos iniciales: `npm run db:cargar` lo marca **Inactivo** sin borrar sus equipos ni su historial (se ve con "Mostrar laboratorios inactivos").
+`CONTROL TECH INSERTS.sql` y `CONTROL TECH BD INSERT VERIF(para ver).sql` son del esquema anterior
+(un solo colegio) y se conservan como referencia: no se ejecutan sobre la base actual.
 
 ## Sección Laboratorios
 
@@ -153,7 +220,7 @@ Cada laboratorio tiene su propio equipamiento, cantidad, estados y software (en 
 - **Eliminar equipo** (solo el administrador, desde la lista de Equipos o la ficha):
   - Los mantenimientos y problemas registrados de la computadora dependen de ella en la base (claves foráneas), así que **se eliminan junto con el equipo**; si tiene, la confirmación muestra cuántos y la API exige `confirmar_historial: true`.
   - También se quita el registro de su software instalado.
-  - La baja queda en el historial de acciones (identificador, serie, modelo, laboratorio y lo eliminado), y una computadora de los datos iniciales eliminada **no se vuelve a crear** al reiniciar.
+  - La baja queda en el historial de acciones (identificador, serie, modelo, laboratorio y lo eliminado).
   - Para conservar el historial, conviene marcarla *Fuera de servicio* desde Editar en lugar de eliminarla.
 
 ## Bloqueo y eliminación de usuarios (solo el administrador)
@@ -211,10 +278,17 @@ Correspondencia con las tablas existentes:
 
 ### Endpoints
 
+Todas las rutas de un colegio responden `403` al SUPERADMIN, y `403` con `codigo: INSTITUCION_SUSPENDIDA` si la institución del usuario está suspendida.
+
 | Método | Ruta | Permiso |
 |---|---|---|
-| POST | `/api/auth/login` | público |
+| POST | `/api/auth/login` | público (devuelve `usuario` e `institucion`) |
 | GET | `/api/auth/me` | autenticado |
+| GET | `/api/institucion` | usuarios del colegio |
+| PUT | `/api/institucion` (nombre, CUIT, dirección, localidad, provincia, email, teléfono, logo) | administrador |
+| PATCH | `/api/institucion/configurada` | administrador |
+| GET / POST | `/api/plataforma/instituciones` (alta con su primer administrador) | SUPERADMIN |
+| PATCH | `/api/plataforma/instituciones/:id/estado` | SUPERADMIN |
 | GET | `/api/roles/asignables` | administrador |
 | GET / POST | `/api/usuarios` | administrador |
 | PATCH | `/api/usuarios/:id/rol` | administrador |

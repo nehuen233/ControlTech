@@ -20,7 +20,6 @@ process.on('unhandledRejection', (err) => {
 const { pool } = require('./config/db');
 const { explicarErrorMySQL } = require('./config/diagnostico');
 const { asegurarRolesAsignables } = require('./controllers/usuariosController');
-const { asegurarDatosUnaVez } = require('./config/datosIniciales');
 const { asegurarEsquemaUnaVez } = require('./config/esquema');
 const { iniciarVerificacionPeriodica } = require('./controllers/alertasController');
 
@@ -31,6 +30,8 @@ pool.query('SELECT 1')
     console.log(`Conectado a MySQL (${process.env.DB_NAME || 'controltecchh'})`);
     const esq = await asegurarEsquemaUnaVez();
     for (const e of Object.values(esq.errores)) console.warn(`AVISO ${e}`);
+    for (const a of esq.avisos) console.warn(`AVISO ${a}`);
+    if (esq.multi) console.log('Esquema multi-institución disponible.');
     if (esq.bloqueo) console.log('Bloqueo de usuarios disponible.');
     if (esq.solicitudes) console.log('Recuperación de contraseña disponible.');
     const creados = await asegurarRolesAsignables().catch((err) => {
@@ -38,14 +39,8 @@ pool.query('SELECT 1')
       return 0;
     });
     if (creados) console.log(`Se agregaron ${creados} rol(es) asignable(s) que faltaban en la tabla roles.`);
-    const r = await asegurarDatosUnaVez().catch((err) => {
-      console.warn(`No se pudieron verificar los datos iniciales: ${err.message}`);
-      return null;
-    });
-    if (r?.laboratorios) console.log(`Se agregaron ${r.laboratorios} laboratorio(s) inicial(es) que faltaban.`);
-    if (r?.equipos_agregados) console.log(`Se agregaron ${r.equipos_agregados} computadora(s) a los laboratorios iniciales.`);
-    if (r?.equipos_actualizados) console.log(`Se actualizaron ${r.equipos_actualizados} computadora(s) de demostración con el equipamiento propio de cada laboratorio.`);
-    for (const o of r?.omitidos || []) console.log(`Datos iniciales omitidos en ${o}.`);
+    // Los datos de demostracion ya no se cargan al iniciar: viven en la institucion "Demo"
+    // y se cargan a pedido con "npm run db:demo".
   })
   .catch((err) => console.error(`No se pudo conectar a MySQL. ${explicarErrorMySQL(err)}\nEjecutá "npm run db:check" para diagnosticar.`));
 

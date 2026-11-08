@@ -44,12 +44,13 @@ async function resolverRolAsignable(idRol) {
   return rows[0];
 }
 
-async function validarLaboratorios(lista) {
+// Los laboratorios tienen que ser de la institucion del administrador (regla 4).
+async function validarLaboratorios(lista, idInstitucion) {
   if (!Array.isArray(lista) || lista.length === 0) {
     throw new HttpError(400, 'Asigná al menos un laboratorio al usuario.');
   }
   const ids = [...new Set(lista.map((v) => enteroPositivo(v, 'El laboratorio')))];
-  const rows = await query('SELECT id_laboratorio FROM laboratorios WHERE id_laboratorio IN (?)', [ids]);
+  const rows = await query('SELECT id_laboratorio FROM laboratorios WHERE id_laboratorio IN (?) AND id_institucion = ?', [ids, idInstitucion]);
   if (rows.length !== ids.length) throw new HttpError(400, 'Algún laboratorio indicado no existe.');
   return ids;
 }
@@ -67,9 +68,11 @@ async function listar(req, res) {
        FROM usuarios u
        JOIN roles r ON r.id_rol = u.id_rol
        LEFT JOIN usuario_laboratorio ul ON ul.id_usuario = u.id_usuario
-       LEFT JOIN laboratorios l ON l.id_laboratorio = ul.id_laboratorio
+       LEFT JOIN laboratorios l ON l.id_laboratorio = ul.id_laboratorio AND l.id_institucion = u.id_institucion
+      WHERE u.id_institucion = ?
       GROUP BY u.id_usuario
       ORDER BY u.id_usuario`,
+    [req.user.idInstitucion],
   );
   res.json(usuarios.map((u) => ({
     ...u,
@@ -85,12 +88,13 @@ async function listar(req, res) {
   if (!esquema.bloqueo) res.setHeader('X-ControlTech-Aviso', 'bloqueo-no-disponible');
 }
 
-// Cuenta sobre la que el administrador puede actuar: nunca un administrador ni la propia.
+// Cuenta sobre la que el administrador puede actuar: de su institucion (si no, 404), nunca
+// un administrador ni la propia.
 async function obtenerGestionable(req, mensajeAdmin) {
   const id = enteroPositivo(req.params.id, 'El usuario');
   const [u] = await query(
-    'SELECT u.id_usuario, u.nombre, u.apellido, u.email, r.nombre_rol FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE u.id_usuario = ?',
-    [id],
+    'SELECT u.id_usuario, u.nombre, u.apellido, u.email, r.nombre_rol FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE u.id_usuario = ? AND u.id_institucion = ?',
+    [id, req.user.idInstitucion],
   );
   if (!u) throw new HttpError(404, 'El usuario no existe.');
   if (u.nombre_rol === ROLES.ADMIN || id === req.user.id) {
@@ -162,20 +166,22 @@ async function crear(req, res) {
   if (errores.length) throw new HttpError(400, errores[0], errores);
 
   const rol = await resolverRolAsignable(req.body?.id_rol);
-  const labs = await validarLaboratorios(req.body?.laboratorios);
+  const labs = await validarLaboratorios(req.body?.laboratorios, req.user.idInstitucion);
 
+  // El email es unico en toda la plataforma (el login es por email). El mensaje no dice
+  // en que institucion esta registrado.
   const existente = await query('SELECT id_usuario FROM usuarios WHERE LOWER(email) = ?', [email]);
-  if (existente.length) throw new HttpError(409, 'Ya existe un usuario registrado con ese email.');
+  if (existente.length) throw new HttpError(409, 'Ese email ya está en uso.');
 
   const hash = await hashContrasena(contrasena);
   const id = await withTransaction(async (conn) => {
     const [r] = await conn.query(
-      'INSERT INTO usuarios (nombre, apellido, email, contrasena, id_rol) VALUES (?, ?, ?, ?, ?)',
-      [nombre, apellido, email, hash, rol.id_rol],
+      'INSERT INTO usuarios (nombre, apellido, email, contrasena, id_rol, id_institucion) VALUES (?, ?, ?, ?, ?, ?)',
+      [nombre, apellido, email, hash, rol.id_rol, req.user.idInstitucion],
     );
     await conn.query(
-      'INSERT INTO usuario_laboratorio (id_usuario, id_laboratorio) VALUES ?',
-      [labs.map((l) => [r.insertId, l])],
+      'INSERT INTO usuario_laboratorio (id_usuario, id_laboratorio, id_institucion) VALUES ?',
+      [labs.map((l) => [r.insertId, l, req.user.idInstitucion])],
     );
     await registrarAccion(conn, {
       idUsuario: req.user.id, accion: 'Crear', entidad: 'Usuario', idRegistro: r.insertId,
@@ -194,8 +200,8 @@ async function crear(req, res) {
 async function actualizarRol(req, res) {
   const id = enteroPositivo(req.params.id, 'El usuario');
   const rows = await query(
-    'SELECT u.id_usuario, u.email, r.nombre_rol FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE u.id_usuario = ?',
-    [id],
+    'SELECT u.id_usuario, u.email, r.nombre_rol FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE u.id_usuario = ? AND u.id_institucion = ?',
+    [id, req.user.idInstitucion],
   );
   if (!rows.length) throw new HttpError(404, 'El usuario no existe.');
   const destino = rows[0];
@@ -207,13 +213,13 @@ async function actualizarRol(req, res) {
   }
 
   const rol = await resolverRolAsignable(req.body?.id_rol);
-  const labs = req.body?.laboratorios !== undefined ? await validarLaboratorios(req.body.laboratorios) : null;
+  const labs = req.body?.laboratorios !== undefined ? await validarLaboratorios(req.body.laboratorios, req.user.idInstitucion) : null;
 
   await withTransaction(async (conn) => {
     await conn.query('UPDATE usuarios SET id_rol = ? WHERE id_usuario = ?', [rol.id_rol, id]);
     if (labs) {
       await conn.query('DELETE FROM usuario_laboratorio WHERE id_usuario = ?', [id]);
-      await conn.query('INSERT INTO usuario_laboratorio (id_usuario, id_laboratorio) VALUES ?', [labs.map((l) => [id, l])]);
+      await conn.query('INSERT INTO usuario_laboratorio (id_usuario, id_laboratorio, id_institucion) VALUES ?', [labs.map((l) => [id, l, req.user.idInstitucion])]);
     }
     await registrarAccion(conn, {
       idUsuario: req.user.id, accion: 'Modificar', entidad: 'Usuario', idRegistro: id,
@@ -242,10 +248,10 @@ async function listarSolicitudes(req, res) {
        JOIN usuarios u ON u.id_usuario = s.id_usuario
        JOIN roles r ON r.id_rol = u.id_rol
        LEFT JOIN usuarios a ON a.id_usuario = s.id_atendida_por
-      ${estadoSol === 'todas' ? '' : 'WHERE s.estado = ?'}
+      WHERE u.id_institucion = ? ${estadoSol === 'todas' ? '' : 'AND s.estado = ?'}
       ORDER BY FIELD(s.estado, 'Pendiente') DESC, s.fecha_solicitud DESC
       LIMIT 200`,
-    estadoSol === 'todas' ? [] : [estadoSol],
+    estadoSol === 'todas' ? [req.user.idInstitucion] : [req.user.idInstitucion, estadoSol],
   );
   res.json(rows.map((x) => ({ ...x, bloqueado: Boolean(Number(x.bloqueado)), rolEtiqueta: etiquetaRol(x.nombre_rol) })));
 }
@@ -253,7 +259,7 @@ async function listarSolicitudes(req, res) {
 async function descartarSolicitud(req, res) {
   await requiereSolicitudes();
   const id = enteroPositivo(req.params.id, 'La solicitud');
-  const [s] = await query('SELECT s.id_solicitud, s.estado, u.email, u.id_usuario FROM solicitudes_contrasena s JOIN usuarios u ON u.id_usuario = s.id_usuario WHERE s.id_solicitud = ?', [id]);
+  const [s] = await query('SELECT s.id_solicitud, s.estado, u.email, u.id_usuario FROM solicitudes_contrasena s JOIN usuarios u ON u.id_usuario = s.id_usuario WHERE s.id_solicitud = ? AND u.id_institucion = ?', [id, req.user.idInstitucion]);
   if (!s) throw new HttpError(404, 'La solicitud no existe.');
   if (s.estado !== 'Pendiente') throw new HttpError(409, 'La solicitud ya fue atendida o descartada.');
   await withTransaction(async (conn) => {
@@ -263,7 +269,7 @@ async function descartarSolicitud(req, res) {
       detalle: `Solicitud de cambio de contraseña de ${s.email} descartada.`,
     });
   });
-  emitirAdmins('solicitud-atendida', { id_solicitud: id, id_usuario: s.id_usuario });
+  emitirAdmins(req.user.idInstitucion, 'solicitud-atendida', { id_solicitud: id, id_usuario: s.id_usuario });
   res.json({ id_solicitud: id, estado: 'Descartada' });
 }
 
@@ -292,7 +298,7 @@ async function cambiarContrasena(req, res) {
     });
   });
   cerrarSesionesDe(u.id_usuario, 'Tu contraseña fue cambiada por el administrador. Iniciá sesión con la nueva contraseña.');
-  for (const id of atendidas) emitirAdmins('solicitud-atendida', { id_solicitud: id, id_usuario: u.id_usuario });
+  for (const id of atendidas) emitirAdmins(req.user.idInstitucion, 'solicitud-atendida', { id_solicitud: id, id_usuario: u.id_usuario });
   // La contraseña solo se devuelve si la genero el sistema, para que el administrador la comunique.
   res.json({ id_usuario: u.id_usuario, email: u.email, solicitudes_atendidas: atendidas.length, ...(generar ? { contrasena_temporal: nueva } : {}) });
 }

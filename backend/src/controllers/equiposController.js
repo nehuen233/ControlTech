@@ -25,8 +25,8 @@ const SELECT_EQUIPO = `
 
 async function listar(req, res) {
   const labs = await laboratoriosPermitidos(req.user);
-  const where = [];
-  const params = [];
+  const where = ['e.id_institucion = ?'];
+  const params = [req.user.idInstitucion];
   filtroLaboratorios(labs, 'e.id_laboratorio', where, params);
   if (req.query.laboratorio) { where.push('e.id_laboratorio = ?'); params.push(enteroPositivo(req.query.laboratorio, 'El laboratorio')); }
   const estado = enumOpcional(req.query.estado, ESTADOS_EQUIPO, 'El estado');
@@ -155,10 +155,10 @@ async function validarReferencias(user, { idLab, validarLab, idResponsable, soft
     const [lab] = await query(
       `SELECT l.id_laboratorio, l.nombre, l.estado, l.capacidad_equipos,
               (SELECT COUNT(*) FROM equipos e WHERE e.id_laboratorio = l.id_laboratorio AND e.id_equipo <> ?) AS ocupados
-         FROM laboratorios l WHERE l.id_laboratorio = ?`,
-      [idEquipo || 0, idLab],
+         FROM laboratorios l WHERE l.id_laboratorio = ? AND l.id_institucion = ?`,
+      [idEquipo || 0, idLab, user.idInstitucion],
     );
-    if (!lab) throw new HttpError(400, 'El laboratorio indicado no existe.');
+    if (!lab) throw new HttpError(404, 'El laboratorio indicado no existe.');
     await verificarAccesoLaboratorio(user, lab.id_laboratorio);
     if (lab.estado !== 'Activo') throw new HttpError(400, `El ${lab.nombre} está inactivo; no se le pueden asignar equipos.`);
     const capacidad = capacidadEfectiva(lab.capacidad_equipos);
@@ -166,27 +166,33 @@ async function validarReferencias(user, { idLab, validarLab, idResponsable, soft
       throw new HttpError(409, `El ${lab.nombre} alcanzó su capacidad máxima (${capacidad} equipos).`);
     }
   }
-  if (idResponsable && !(await asignadoAlLaboratorio(idResponsable, idLab))) {
+  // El responsable tiene que ser de la misma institucion y estar asignado al laboratorio.
+  if (idResponsable && !(await asignadoAlLaboratorio(idResponsable, idLab, user.idInstitucion))) {
     throw new HttpError(400, 'El responsable debe ser un usuario asignado al laboratorio del equipo.');
   }
   if (software?.length) {
     const ids = software.map(([idS]) => idS);
-    const rows = await query('SELECT id_software FROM software WHERE id_software IN (?)', [ids]);
+    const rows = await query('SELECT id_software FROM software WHERE id_software IN (?) AND id_institucion = ?', [ids, user.idInstitucion]);
     if (rows.length !== ids.length) throw new HttpError(400, 'Algún software indicado no existe.');
   }
 }
 
-async function asignadoAlLaboratorio(idUsuario, idLab) {
-  const rows = await query('SELECT 1 FROM usuario_laboratorio WHERE id_usuario = ? AND id_laboratorio = ?', [idUsuario, idLab]);
+async function asignadoAlLaboratorio(idUsuario, idLab, idInstitucion) {
+  const rows = await query(
+    `SELECT 1 FROM usuario_laboratorio ul JOIN usuarios u ON u.id_usuario = ul.id_usuario
+      WHERE ul.id_usuario = ? AND ul.id_laboratorio = ? AND ul.id_institucion = ? AND u.id_institucion = ?`,
+    [idUsuario, idLab, idInstitucion, idInstitucion],
+  );
   return rows.length > 0;
 }
 
-async function verificarUnicos(campos, idEquipo) {
+// Identificador y numero de serie son unicos dentro de la institucion.
+async function verificarUnicos(campos, idInstitucion, idEquipo) {
   for (const k of ['identificador', 'nro_serie']) {
     if (!campos[k]) continue;
     const rows = await query(
-      `SELECT identificador FROM equipos WHERE ${k} = ? AND id_equipo <> ?`,
-      [campos[k], idEquipo || 0],
+      `SELECT identificador FROM equipos WHERE id_institucion = ? AND ${k} = ? AND id_equipo <> ?`,
+      [idInstitucion, campos[k], idEquipo || 0],
     );
     if (rows.length) {
       throw new HttpError(409, k === 'identificador'
@@ -212,9 +218,9 @@ async function crear(req, res) {
   await validarReferencias(req.user, {
     idLab: campos.id_laboratorio, validarLab: true, idResponsable: campos.id_responsable, software,
   });
-  await verificarUnicos(campos);
+  await verificarUnicos(campos, req.user.idInstitucion);
   const id = await withTransaction(async (conn) => {
-    const [r] = await conn.query('INSERT INTO equipos SET ?', [campos]);
+    const [r] = await conn.query('INSERT INTO equipos SET ?', [{ ...campos, id_institucion: req.user.idInstitucion }]);
     await guardarSoftware(conn, r.insertId, software);
     await registrarAccion(conn, {
       idUsuario: req.user.id, accion: 'Crear', entidad: 'Equipo', idRegistro: r.insertId,
@@ -238,13 +244,13 @@ async function actualizar(req, res) {
   });
   // Al trasladar el equipo, si el responsable anterior no tiene acceso al nuevo laboratorio queda sin responsable.
   if (cambiaLab && campos.id_responsable === undefined && actual.id_responsable
-      && !(await asignadoAlLaboratorio(actual.id_responsable, idLab))) {
+      && !(await asignadoAlLaboratorio(actual.id_responsable, idLab, req.user.idInstitucion))) {
     campos.id_responsable = null;
   }
-  await verificarUnicos(campos, id);
+  await verificarUnicos(campos, req.user.idInstitucion, id);
 
   await withTransaction(async (conn) => {
-    if (Object.keys(campos).length) await conn.query('UPDATE equipos SET ? WHERE id_equipo = ?', [campos, id]);
+    if (Object.keys(campos).length) await conn.query('UPDATE equipos SET ? WHERE id_equipo = ? AND id_institucion = ?', [campos, id, req.user.idInstitucion]);
     await guardarSoftware(conn, id, software);
     const cambios = [...Object.keys(campos), ...(software !== undefined ? ['software'] : [])];
     await registrarAccion(conn, {
@@ -281,13 +287,13 @@ async function eliminar(req, res) {
     await conn.query('DELETE FROM alertas WHERE id_equipo = ?', [id]);
     await conn.query('DELETE FROM mantenimientos WHERE id_equipo = ?', [id]);
     await conn.query('DELETE FROM equipo_software WHERE id_equipo = ?', [id]);
-    await conn.query('DELETE FROM equipos WHERE id_equipo = ?', [id]);
+    await conn.query('DELETE FROM equipos WHERE id_equipo = ? AND id_institucion = ?', [id, req.user.idInstitucion]);
     const partes = [`${marcaBaja(eq.identificador)} (serie ${eq.nro_serie}, ${eq.marca}${eq.modelo ? ` ${eq.modelo}` : ''}, ${lab?.nombre || 'sin laboratorio'}).`];
     if (mantenimientos || alertas) partes.push(`Se eliminaron ${mantenimientos} mantenimiento(s) y ${alertas} problema(s) registrados.`);
     await registrarAccion(conn, { idUsuario: req.user.id, accion: 'Eliminar', entidad: 'Equipo', idRegistro: id, detalle: partes.join(' ') });
     return { software: Number(sw.n) };
   });
-  require('./alertasController').notificarResueltas(activas.map((x) => ({ id_alerta: x.id_alerta, id_laboratorio: eq.id_laboratorio, equipo: eq.identificador })));
+  require('./alertasController').notificarResueltas(activas.map((x) => ({ id_alerta: x.id_alerta, id_laboratorio: eq.id_laboratorio, id_institucion: eq.id_institucion, equipo: eq.identificador })));
   res.json({ id_equipo: id, identificador: eq.identificador, mantenimientos_eliminados: mantenimientos, problemas_eliminados: alertas, software_desinstalado: resultado.software });
 }
 

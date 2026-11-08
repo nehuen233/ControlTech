@@ -28,16 +28,19 @@ function Ingresar({ email, setEmail, onOlvido }) {
   const { login, aviso } = useAuth()
   const [contrasena, setContrasena] = useState('')
   const [error, setError] = useState('')
+  const [suspendida, setSuspendida] = useState('')
   const [enviando, setEnviando] = useState(false)
 
   const enviar = async (e) => {
     e.preventDefault()
     setError('')
+    setSuspendida('')
     setEnviando(true)
     try {
       await login(email, contrasena)
     } catch (err) {
-      setError(err.message)
+      if (err.detalles?.codigo === 'INSTITUCION_SUSPENDIDA') setSuspendida(err.message)
+      else setError(err.message)
     } finally {
       setEnviando(false)
     }
@@ -48,7 +51,12 @@ function Ingresar({ email, setEmail, onOlvido }) {
       <Marca />
       <p className="texto-suave">Gestión de laboratorios, equipos y mantenimientos</p>
       <Alerta>{error}</Alerta>
-      {!error && aviso && <div className="alerta alerta-aviso" role="status">{aviso}</div>}
+      {suspendida && (
+        <div className="alerta alerta-error" role="alert">
+          <span><strong>Institución suspendida.</strong> {suspendida}</span>
+        </div>
+      )}
+      {!error && !suspendida && aviso && <div className="alerta alerta-aviso" role="status">{aviso}</div>}
       <label>
         Email
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />

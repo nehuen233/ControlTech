@@ -6,7 +6,6 @@ const { laboratoriosPermitidos, filtroLaboratorios, verificarAccesoLaboratorio }
 const { registrarAccion } = require('../utils/historial');
 const { texto, enteroPositivo } = require('../utils/validacion');
 const { MENSAJE_RANGO, CAPACIDAD_MAX, capacidadEfectiva, capacidadValida } = require('../utils/capacidad');
-const { asegurarDatosUnaVez } = require('../config/datosIniciales');
 
 const ESTADOS_LAB = ['Activo', 'Inactivo'];
 const LIMITES = { nombre: 100, edificio: 100, piso: 50, ubicacion: 150, codigo_acceso: 100 };
@@ -32,7 +31,6 @@ const SELECT_LAB = `
     FROM laboratorios l LEFT JOIN equipos e ON e.id_laboratorio = l.id_laboratorio`;
 
 async function listar(req, res) {
-  await asegurarDatosUnaVez();
   const labs = await laboratoriosPermitidos(req.user);
   const where = [];
   const params = [];
@@ -45,15 +43,16 @@ async function listar(req, res) {
   res.json(rows.map((r) => publico(r, req.user)));
 }
 
-async function obtener(id) {
-  const rows = await query(`${SELECT_LAB} WHERE l.id_laboratorio = ? GROUP BY l.id_laboratorio`, [id]);
+// Laboratorio de la institucion indicada; si es de otra, 404 (no se revela que existe).
+async function obtener(id, idInstitucion) {
+  const rows = await query(`${SELECT_LAB} WHERE l.id_laboratorio = ? AND l.id_institucion = ? GROUP BY l.id_laboratorio`, [id, idInstitucion]);
   if (!rows.length) throw new HttpError(404, 'El laboratorio no existe.');
   return rows[0];
 }
 
 async function detalle(req, res) {
   const id = enteroPositivo(req.params.id, 'El laboratorio');
-  const lab = await obtener(id);
+  const lab = await obtener(id, req.user.idInstitucion);
   await verificarAccesoLaboratorio(req.user, id);
   const porEstado = await query(
     'SELECT estado, COUNT(*) AS cantidad FROM equipos WHERE id_laboratorio = ? GROUP BY estado ORDER BY estado',
@@ -90,7 +89,7 @@ async function detalle(req, res) {
 // Usuarios asignados al laboratorio: candidatos a responsable de un equipo.
 async function responsables(req, res) {
   const id = enteroPositivo(req.params.id, 'El laboratorio');
-  await obtener(id);
+  await obtener(id, req.user.idInstitucion);
   await verificarAccesoLaboratorio(req.user, id);
   const rows = await query(
     `SELECT u.id_usuario, CONCAT(u.nombre, ' ', u.apellido) AS nombre, r.nombre_rol
@@ -137,24 +136,26 @@ function leerCampos(body, parcial) {
   return out;
 }
 
-async function verificarNombreUnico(nombre, excluirId) {
+// El nombre es unico dentro de la institucion (otro colegio puede tener uno igual).
+async function verificarNombreUnico(nombre, idInstitucion, excluirId) {
   const rows = await query(
-    'SELECT id_laboratorio FROM laboratorios WHERE LOWER(TRIM(nombre)) = LOWER(?) AND id_laboratorio <> ?',
-    [nombre, excluirId || 0],
+    'SELECT id_laboratorio FROM laboratorios WHERE id_institucion = ? AND LOWER(TRIM(nombre)) = LOWER(?) AND id_laboratorio <> ?',
+    [idInstitucion, nombre, excluirId || 0],
   );
   if (rows.length) throw new HttpError(409, `Ya existe un laboratorio llamado "${nombre}".`);
 }
 
 async function crear(req, res) {
   const campos = leerCampos(req.body || {}, false);
-  await verificarNombreUnico(campos.nombre);
+  await verificarNombreUnico(campos.nombre, req.user.idInstitucion);
   const id = await withTransaction(async (conn) => {
-    const [r] = await conn.query('INSERT INTO laboratorios SET ?', [campos]);
-    // El administrador mantiene acceso a todos los laboratorios, como en los datos originales.
+    const [r] = await conn.query('INSERT INTO laboratorios SET ?', [{ ...campos, id_institucion: req.user.idInstitucion }]);
+    // Los administradores DE ESTA INSTITUCION quedan asignados, como en los datos originales.
     await conn.query(
-      `INSERT IGNORE INTO usuario_laboratorio (id_usuario, id_laboratorio)
-       SELECT u.id_usuario, ? FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE r.nombre_rol = ?`,
-      [r.insertId, ROLES.ADMIN],
+      `INSERT IGNORE INTO usuario_laboratorio (id_usuario, id_laboratorio, id_institucion)
+       SELECT u.id_usuario, ?, u.id_institucion FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol
+        WHERE r.nombre_rol = ? AND u.id_institucion = ?`,
+      [r.insertId, ROLES.ADMIN, req.user.idInstitucion],
     );
     await registrarAccion(conn, {
       idUsuario: req.user.id, accion: 'Crear', entidad: 'Laboratorio', idRegistro: r.insertId,
@@ -162,15 +163,15 @@ async function crear(req, res) {
     });
     return r.insertId;
   });
-  res.status(201).json(publico(await obtener(id), req.user));
+  res.status(201).json(publico(await obtener(id, req.user.idInstitucion), req.user));
 }
 
 async function actualizar(req, res) {
   const id = enteroPositivo(req.params.id, 'El laboratorio');
-  const actual = await obtener(id);
+  const actual = await obtener(id, req.user.idInstitucion);
   const campos = leerCampos(req.body || {}, true);
   if (!Object.keys(campos).length) throw new HttpError(400, 'No se indicaron cambios.');
-  if (campos.nombre) await verificarNombreUnico(campos.nombre, id);
+  if (campos.nombre) await verificarNombreUnico(campos.nombre, req.user.idInstitucion, id);
   const total = Number(actual.total_equipos || 0);
   if (campos.capacidad_equipos != null && campos.capacidad_equipos < total) {
     throw new HttpError(400, total > CAPACIDAD_MAX
@@ -178,13 +179,13 @@ async function actualizar(req, res) {
       : `La capacidad no puede ser menor a los ${total} equipos registrados en el laboratorio.`);
   }
   await withTransaction(async (conn) => {
-    await conn.query('UPDATE laboratorios SET ? WHERE id_laboratorio = ?', [campos, id]);
+    await conn.query('UPDATE laboratorios SET ? WHERE id_laboratorio = ? AND id_institucion = ?', [campos, id, req.user.idInstitucion]);
     await registrarAccion(conn, {
       idUsuario: req.user.id, accion: 'Modificar', entidad: 'Laboratorio', idRegistro: id,
       detalle: `Actualización (${Object.keys(campos).join(', ')}).`,
     });
   });
-  res.json(publico(await obtener(id), req.user));
+  res.json(publico(await obtener(id, req.user.idInstitucion), req.user));
 }
 
 // Marca que deja la baja en historial_acciones: los datos iniciales la consultan para no
@@ -195,7 +196,7 @@ const marcaBaja = (nombre) => `Baja del laboratorio "${nombre}".`;
 // e historial): si tiene, se mueven al laboratorio "destino" que elija el administrador.
 async function eliminar(req, res) {
   const id = enteroPositivo(req.params.id, 'El laboratorio');
-  const lab = await obtener(id);
+  const lab = await obtener(id, req.user.idInstitucion);
   const total = Number(lab.total_equipos || 0);
   const b = req.body || {};
   let destino = null;
@@ -206,7 +207,7 @@ async function eliminar(req, res) {
     }
     const idDestino = enteroPositivo(b.destino, 'El laboratorio de destino');
     if (idDestino === id) throw new HttpError(400, 'El laboratorio de destino debe ser otro.');
-    destino = await obtener(idDestino);
+    destino = await obtener(idDestino, req.user.idInstitucion);
     if (destino.estado !== 'Activo') throw new HttpError(400, `El ${destino.nombre} está inactivo: elegí un laboratorio activo.`);
     const libres = capacidadEfectiva(destino.capacidad_equipos) - Number(destino.total_equipos || 0);
     if (total > libres) {
@@ -233,7 +234,7 @@ async function eliminar(req, res) {
       }
     }
     await conn.query('DELETE FROM usuario_laboratorio WHERE id_laboratorio = ?', [id]);
-    await conn.query('DELETE FROM laboratorios WHERE id_laboratorio = ?', [id]);
+    await conn.query('DELETE FROM laboratorios WHERE id_laboratorio = ? AND id_institucion = ?', [id, req.user.idInstitucion]);
     await registrarAccion(conn, {
       idUsuario: req.user.id, accion: 'Eliminar', entidad: 'Laboratorio', idRegistro: id,
       detalle: `${marcaBaja(lab.nombre)}${n ? ` ${n} computadora(s) trasladadas al ${destino.nombre}.` : ''}`,
