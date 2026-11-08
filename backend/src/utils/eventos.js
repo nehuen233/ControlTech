@@ -1,5 +1,6 @@
 // Eventos en tiempo real con Server-Sent Events (SSE): cada ventana abierta mantiene una
-// conexion y el servidor le envia lo que le corresponde segun su rol y sus laboratorios.
+// conexion y el servidor le envia lo que le corresponde segun su INSTITUCION, su rol y sus
+// laboratorios. Nunca se envia nada a un cliente de otra institucion.
 //   alerta           -> nueva alerta de mantenimiento (admin, directivo y roles de gestion)
 //   alerta-resuelta  -> una alerta dejo de estar activa
 //   sesion           -> la cuenta fue bloqueada o eliminada, o cambio su contraseña: la ventana debe cerrar sesion
@@ -17,7 +18,7 @@ function enviar(c, evento, datos) {
   }
 }
 
-// labs: null = todos los laboratorios, o lista de ids.
+// labs: lista de ids de laboratorios permitidos (de la institucion del usuario).
 function suscribir(req, res, labs) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -35,18 +36,20 @@ function suscribir(req, res, labs) {
   req.on('close', () => { clearInterval(latido); clientes.delete(c); });
 }
 
+const mismaInstitucion = (c, idInstitucion) => Boolean(c.user.idInstitucion) && c.user.idInstitucion === Number(idInstitucion);
 const recibeAlertas = (c) => ROLES_TODOS_LOS_LABS.includes(c.user.rol) || ROLES_GESTION_MANTENIMIENTO.includes(c.user.rol);
-const veLaboratorio = (c, idLab) => c.labs === null || c.labs.includes(Number(idLab));
+const veLaboratorio = (c, idLab) => Array.isArray(c.labs) && c.labs.includes(Number(idLab));
 
+// La alerta debe traer id_institucion e id_laboratorio.
 function emitirAlerta(evento, alerta) {
   for (const c of clientes) {
-    if (recibeAlertas(c) && veLaboratorio(c, alerta.id_laboratorio)) enviar(c, evento, alerta);
+    if (mismaInstitucion(c, alerta.id_institucion) && recibeAlertas(c) && veLaboratorio(c, alerta.id_laboratorio)) enviar(c, evento, alerta);
   }
 }
 
-// Eventos solo para las ventanas de administradores.
-function emitirAdmins(evento, datos) {
-  for (const c of clientes) if (c.user.rol === ROLES.ADMIN) enviar(c, evento, datos);
+// Eventos solo para las ventanas de administradores de esa institucion.
+function emitirAdmins(idInstitucion, evento, datos) {
+  for (const c of clientes) if (c.user.rol === ROLES.ADMIN && mismaInstitucion(c, idInstitucion)) enviar(c, evento, datos);
 }
 
 // Avisa a todas las ventanas de un usuario y cierra sus conexiones.
@@ -60,6 +63,17 @@ function cerrarSesionesDe(idUsuario, motivo) {
   }
 }
 
+// Institucion suspendida: se cierran todas sus ventanas abiertas.
+function cerrarSesionesInstitucion(idInstitucion, motivo) {
+  for (const c of clientes) {
+    if (mismaInstitucion(c, idInstitucion)) {
+      enviar(c, 'sesion', { motivo, codigo: 'INSTITUCION_SUSPENDIDA' });
+      try { c.res.end(); } catch { /* ya cerrada */ }
+      clientes.delete(c);
+    }
+  }
+}
+
 const conectados = () => [...clientes].map((c) => ({ usuario: c.user.id, rol: c.user.rol }));
 
-module.exports = { suscribir, emitirAlerta, emitirAdmins, cerrarSesionesDe, conectados, ROLES };
+module.exports = { suscribir, emitirAlerta, emitirAdmins, cerrarSesionesDe, cerrarSesionesInstitucion, conectados, ROLES };

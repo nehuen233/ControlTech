@@ -8,11 +8,22 @@ const { ROLES: R } = require('../utils/roles');
 const { etiquetaRol } = require('../utils/roles');
 const { laboratoriosPermitidos } = require('../utils/acceso');
 const { texto } = require('../utils/validacion');
-const { asegurarEsquemaUnaVez, colBloqueado } = require('../config/esquema');
+const { colBloqueado } = require('../config/esquema');
+const { exigirEsquemaMulti, MENSAJE_SUSPENDIDA } = require('../middlewares/auth');
+
+// Datos publicos de la institucion del usuario (null para el SUPERADMIN).
+async function institucionDe(idInstitucion) {
+  if (!idInstitucion) return null;
+  const [i] = await query('SELECT id_institucion, nombre, logo_url, estado, configurada FROM instituciones WHERE id_institucion = ?', [idInstitucion]);
+  return i ? { id: i.id_institucion, nombre: i.nombre, logo_url: i.logo_url, estado: i.estado, configurada: Number(i.configurada) } : null;
+}
 
 async function perfil(user) {
   const labs = await laboratoriosPermitidos(user);
-  return { ...user, rolEtiqueta: etiquetaRol(user.rol), laboratorios: labs };
+  return {
+    usuario: { ...user, rolEtiqueta: etiquetaRol(user.rol), laboratorios: labs },
+    institucion: await institucionDe(user.idInstitucion),
+  };
 }
 
 async function login(req, res) {
@@ -20,10 +31,12 @@ async function login(req, res) {
   const contrasena = typeof req.body?.contrasena === 'string' ? req.body.contrasena : '';
   if (!email || !contrasena) throw new HttpError(400, 'Ingresá el email y la contraseña.');
 
-  await asegurarEsquemaUnaVez();
+  await exigirEsquemaMulti();
   const rows = await query(
-    `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.contrasena, r.nombre_rol, ${colBloqueado()} AS bloqueado
+    `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.contrasena, r.nombre_rol, ${colBloqueado()} AS bloqueado,
+            u.id_institucion, i.estado AS estado_institucion
        FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol
+       LEFT JOIN instituciones i ON i.id_institucion = u.id_institucion
       WHERE LOWER(u.email) = ?`,
     [email],
   );
@@ -35,15 +48,19 @@ async function login(req, res) {
   if (Number(u.bloqueado)) {
     throw new HttpError(403, 'Tu cuenta está bloqueada. Consultá con el administrador del sistema.', { codigo: 'CUENTA_BLOQUEADA' });
   }
-  const user = { id: u.id_usuario, nombre: u.nombre, apellido: u.apellido, email: u.email, rol: u.nombre_rol };
+  if (u.estado_institucion === 'Suspendida') throw new HttpError(403, MENSAJE_SUSPENDIDA, { codigo: 'INSTITUCION_SUSPENDIDA' });
+  const user = {
+    id: u.id_usuario, nombre: u.nombre, apellido: u.apellido, email: u.email, rol: u.nombre_rol,
+    idInstitucion: u.id_institucion ?? null, esSuperadmin: u.nombre_rol === R.SUPERADMIN,
+  };
   const token = jwt.sign({ sub: u.id_usuario, pv: huellaContrasena(u.contrasena) }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '8h',
   });
-  res.json({ token, usuario: await perfil(user) });
+  res.json({ token, ...(await perfil(user)) });
 }
 
 async function me(req, res) {
-  res.json({ usuario: await perfil(req.user) });
+  res.json(await perfil(req.user));
 }
 
 // ---------- "¿Olvidaste tu contraseña?" ----------
@@ -70,16 +87,17 @@ async function recuperar(req, res) {
   const mensaje = texto(req.body?.mensaje).slice(0, 300) || null;
   if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Ingresá un email válido.');
   if (superaLimite(`email:${email}`, 3) || superaLimite(`ip:${req.ip}`, 30)) throw new HttpError(429, 'Hiciste demasiadas solicitudes. Esperá unos minutos e intentá de nuevo.');
-  await asegurarEsquemaUnaVez();
+  await exigirEsquemaMulti();
   if (!esquema.solicitudes) throw new HttpError(503, 'La recuperación de contraseña no está disponible todavía. Avisale al administrador.');
 
   const [u] = await query(
-    `SELECT u.id_usuario, u.nombre, u.apellido, u.email, r.nombre_rol, ${colBloqueado()} AS bloqueado
+    `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.id_institucion, r.nombre_rol, ${colBloqueado()} AS bloqueado
        FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol WHERE LOWER(u.email) = ?`,
     [email],
   );
-  // El administrador no usa esta opcion; un email inexistente tampoco genera nada.
-  if (u && u.nombre_rol !== R.ADMIN) {
+  // El administrador y el SUPERADMIN no usan esta opcion; un email inexistente tampoco genera
+  // nada. La solicitud solo la ven los administradores de la institucion del usuario.
+  if (u && u.id_institucion && u.nombre_rol !== R.ADMIN && u.nombre_rol !== R.SUPERADMIN) {
     // Una sola solicitud pendiente por usuario: si ya habia una, se actualiza.
     const [pend] = await query("SELECT id_solicitud FROM solicitudes_contrasena WHERE id_usuario = ? AND estado = 'Pendiente'", [u.id_usuario]);
     let id;
@@ -96,7 +114,7 @@ async function recuperar(req, res) {
         WHERE s.id_solicitud = ?`,
       [id],
     );
-    emitirAdmins('solicitud-contrasena', { ...sol, bloqueado: Boolean(Number(u.bloqueado)) });
+    emitirAdmins(u.id_institucion, 'solicitud-contrasena', { ...sol, bloqueado: Boolean(Number(u.bloqueado)) });
   }
   res.json({ ok: true, mensaje: RESPUESTA_RECUPERAR });
 }

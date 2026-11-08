@@ -1,6 +1,8 @@
 // Software de cada laboratorio. No existe una relacion directa laboratorio-software en el
 // modelo: el software de un laboratorio es el instalado en sus equipos (`equipo_software`).
 // Las licencias salen de la tabla `licencias` (una por software: se usa la activa o la mas reciente).
+// El catalogo de software es de cada institucion (software.id_institucion); las licencias y las
+// instalaciones heredan la institucion por el software y el equipo.
 const { query, withTransaction } = require('../config/db');
 const { HttpError } = require('../utils/httpError');
 const { ROLES, ROLES_GESTION_MANTENIMIENTO } = require('../utils/roles');
@@ -46,7 +48,7 @@ function formatear(row, user) {
 }
 
 async function obtenerLaboratorio(user, idLab) {
-  const [lab] = await query('SELECT id_laboratorio, nombre, estado FROM laboratorios WHERE id_laboratorio = ?', [idLab]);
+  const [lab] = await query('SELECT id_laboratorio, nombre, estado FROM laboratorios WHERE id_laboratorio = ? AND id_institucion = ?', [idLab, user.idInstitucion]);
   if (!lab) throw new HttpError(404, 'El laboratorio no existe.');
   await verificarAccesoLaboratorio(user, idLab);
   return lab;
@@ -78,7 +80,9 @@ async function catalogo(req, res) {
     `SELECT s.id_software, s.nombre_software, s.version, s.proveedor, s.descripcion,
             li.id_licencia, li.tipo_licencia, li.numero_licencia, li.fecha_vencimiento, li.estado AS estado_licencia
        FROM software s ${JOIN_LICENCIA}
+      WHERE s.id_institucion = ?
       ORDER BY s.nombre_software, s.version`,
+    [req.user.idInstitucion],
   );
   res.json(rows.map((r) => {
     const f = formatear(r, req.user);
@@ -147,23 +151,25 @@ async function resolverEquipos(idLab, equipos) {
   return pedidos;
 }
 
-async function verificarClaveUnica(conn, numero, idLicenciaPropia) {
+// La clave de licencia es unica dentro de la institucion (la del software).
+async function verificarClaveUnica(conn, numero, idInstitucion, idLicenciaPropia) {
   if (!numero) return;
   const [rows] = await conn.query(
-    'SELECT id_licencia FROM licencias WHERE numero_licencia = ? AND id_licencia <> ?',
-    [numero, idLicenciaPropia || 0],
+    `SELECT li.id_licencia FROM licencias li JOIN software s ON s.id_software = li.id_software
+      WHERE li.numero_licencia = ? AND s.id_institucion = ? AND li.id_licencia <> ?`,
+    [numero, idInstitucion, idLicenciaPropia || 0],
   );
   if (rows.length) throw new HttpError(409, 'Esa clave de licencia ya está registrada en otro software.');
 }
 
-async function guardarLicencia(conn, idSoftware, licencia) {
+async function guardarLicencia(conn, idSoftware, idInstitucion, licencia) {
   if (licencia === undefined) return;
   const [[actual]] = await conn.query(
     `SELECT li.id_licencia FROM software s ${JOIN_LICENCIA} WHERE s.id_software = ?`,
     [idSoftware],
   );
   if (licencia === null) return; // No se eliminan licencias registradas.
-  await verificarClaveUnica(conn, licencia.numero_licencia, actual?.id_licencia);
+  await verificarClaveUnica(conn, licencia.numero_licencia, idInstitucion, actual?.id_licencia);
   if (actual?.id_licencia) {
     await conn.query('UPDATE licencias SET ? WHERE id_licencia = ?', [licencia, actual.id_licencia]);
   } else {
@@ -185,8 +191,8 @@ async function agregarALaboratorio(req, res) {
   let licencia;
   if (b.id_software !== undefined && b.id_software !== null && b.id_software !== '') {
     idSoftware = enteroPositivo(b.id_software, 'El software');
-    const [s] = await query('SELECT id_software FROM software WHERE id_software = ?', [idSoftware]);
-    if (!s) throw new HttpError(400, 'El software elegido no existe en el catálogo.');
+    const [s] = await query('SELECT id_software FROM software WHERE id_software = ? AND id_institucion = ?', [idSoftware, req.user.idInstitucion]);
+    if (!s) throw new HttpError(404, 'El software elegido no existe en el catálogo.');
   } else {
     const r = leerDatosSoftware(b.software || {}, false);
     const l = leerLicencia(b.licencia === undefined ? undefined : b.licencia);
@@ -195,8 +201,8 @@ async function agregarALaboratorio(req, res) {
     nuevo = r.datos;
     licencia = l.licencia;
     const [dup] = await query(
-      'SELECT id_software FROM software WHERE LOWER(nombre_software) = LOWER(?) AND COALESCE(version, \'\') = COALESCE(?, \'\')',
-      [nuevo.nombre_software, nuevo.version ?? null],
+      'SELECT id_software FROM software WHERE id_institucion = ? AND LOWER(nombre_software) = LOWER(?) AND COALESCE(version, \'\') = COALESCE(?, \'\')',
+      [req.user.idInstitucion, nuevo.nombre_software, nuevo.version ?? null],
     );
     if (dup) throw new HttpError(409, `${nuevo.nombre_software}${nuevo.version ? ` ${nuevo.version}` : ''} ya existe en el catálogo: elegilo de la lista.`);
   }
@@ -206,9 +212,9 @@ async function agregarALaboratorio(req, res) {
 
   const resultado = await withTransaction(async (conn) => {
     if (nuevo) {
-      const [r] = await conn.query('INSERT INTO software SET ?', [nuevo]);
+      const [r] = await conn.query('INSERT INTO software SET ?', [{ ...nuevo, id_institucion: req.user.idInstitucion }]);
       idSoftware = r.insertId;
-      await guardarLicencia(conn, idSoftware, licencia);
+      await guardarLicencia(conn, idSoftware, req.user.idInstitucion, licencia);
       await registrarAccion(conn, {
         idUsuario: req.user.id, accion: 'Crear', entidad: 'Software', idRegistro: idSoftware,
         detalle: `Alta de ${nuevo.nombre_software} en el catálogo de software.`,
@@ -236,7 +242,7 @@ async function actualizarEnLaboratorio(req, res) {
   const idLab = enteroPositivo(req.params.id, 'El laboratorio');
   const idSoftware = enteroPositivo(req.params.idSoftware, 'El software');
   const lab = await obtenerLaboratorio(req.user, idLab);
-  const [s] = await query('SELECT * FROM software WHERE id_software = ?', [idSoftware]);
+  const [s] = await query('SELECT * FROM software WHERE id_software = ? AND id_institucion = ?', [idSoftware, req.user.idInstitucion]);
   if (!s) throw new HttpError(404, 'El software no existe.');
   const b = req.body || {};
 
@@ -252,8 +258,8 @@ async function actualizarEnLaboratorio(req, res) {
     const nombre = r.datos.nombre_software ?? s.nombre_software;
     const version = r.datos.version !== undefined ? r.datos.version : s.version;
     const [dup] = await query(
-      'SELECT id_software FROM software WHERE LOWER(nombre_software) = LOWER(?) AND COALESCE(version, \'\') = COALESCE(?, \'\') AND id_software <> ?',
-      [nombre, version, idSoftware],
+      'SELECT id_software FROM software WHERE id_institucion = ? AND LOWER(nombre_software) = LOWER(?) AND COALESCE(version, \'\') = COALESCE(?, \'\') AND id_software <> ?',
+      [req.user.idInstitucion, nombre, version, idSoftware],
     );
     if (dup) throw new HttpError(409, `Ya existe ${nombre}${version ? ` ${version}` : ''} en el catálogo.`);
   }
@@ -263,8 +269,8 @@ async function actualizarEnLaboratorio(req, res) {
   if (!cambiaCatalogo && equipos === undefined) throw new HttpError(400, 'No se indicaron cambios.');
 
   await withTransaction(async (conn) => {
-    if (Object.keys(r.datos).length) await conn.query('UPDATE software SET ? WHERE id_software = ?', [r.datos, idSoftware]);
-    await guardarLicencia(conn, idSoftware, l.licencia);
+    if (Object.keys(r.datos).length) await conn.query('UPDATE software SET ? WHERE id_software = ? AND id_institucion = ?', [r.datos, idSoftware, req.user.idInstitucion]);
+    await guardarLicencia(conn, idSoftware, req.user.idInstitucion, l.licencia);
     if (cambiaCatalogo) {
       await registrarAccion(conn, {
         idUsuario: req.user.id, accion: 'Modificar', entidad: 'Software', idRegistro: idSoftware,
@@ -302,7 +308,7 @@ async function quitarDeLaboratorio(req, res) {
   const idLab = enteroPositivo(req.params.id, 'El laboratorio');
   const idSoftware = enteroPositivo(req.params.idSoftware, 'El software');
   const lab = await obtenerLaboratorio(req.user, idLab);
-  const [s] = await query('SELECT nombre_software FROM software WHERE id_software = ?', [idSoftware]);
+  const [s] = await query('SELECT nombre_software FROM software WHERE id_software = ? AND id_institucion = ?', [idSoftware, req.user.idInstitucion]);
   if (!s) throw new HttpError(404, 'El software no existe.');
   const quitados = await withTransaction(async (conn) => {
     const [r] = await conn.query(

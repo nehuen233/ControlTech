@@ -20,7 +20,7 @@ const diasPreventivo = () => {
 
 const SELECT_ALERTA = `
   SELECT a.id_alerta, a.id_equipo, a.titulo, a.descripcion, a.severidad, a.fecha_creacion, a.fecha_limite, a.estado,
-         e.identificador AS equipo, e.estado AS estado_equipo, e.id_laboratorio, l.nombre AS laboratorio,
+         e.identificador AS equipo, e.estado AS estado_equipo, e.id_laboratorio, e.id_institucion, l.nombre AS laboratorio,
          (SELECT CONCAT(u.nombre, ' ', u.apellido) FROM historial_acciones h JOIN usuarios u ON u.id_usuario = h.id_usuario
            WHERE h.entidad = 'Alerta' AND h.accion = 'Crear' AND h.id_registro = a.id_alerta
            ORDER BY h.id_accion LIMIT 1) AS reportado_por,
@@ -37,8 +37,11 @@ function formatear(a) {
   };
 }
 
-async function obtenerAlerta(id) {
-  const [a] = await query(`${SELECT_ALERTA} WHERE a.id_alerta = ?`, [id]);
+// idInstitucion opcional: si se indica, una alerta de otra institucion no se devuelve.
+async function obtenerAlerta(id, idInstitucion) {
+  const [a] = idInstitucion
+    ? await query(`${SELECT_ALERTA} WHERE a.id_alerta = ? AND e.id_institucion = ?`, [id, idInstitucion])
+    : await query(`${SELECT_ALERTA} WHERE a.id_alerta = ?`, [id]);
   return a ? formatear(a) : null;
 }
 
@@ -50,15 +53,15 @@ async function notificarAlerta(id, evento = 'alerta') {
 }
 
 function notificarResueltas(alertas) {
-  for (const a of alertas) emitirAlerta('alerta-resuelta', { id_alerta: a.id_alerta, id_laboratorio: a.id_laboratorio, equipo: a.equipo });
+  for (const a of alertas) emitirAlerta('alerta-resuelta', { id_alerta: a.id_alerta, id_laboratorio: a.id_laboratorio, id_institucion: a.id_institucion, equipo: a.equipo });
 }
 
 const ORDEN = "ORDER BY FIELD(a.estado, 'Activa', 'Resuelta'), FIELD(a.severidad, 'Critica', 'Alta', 'Media', 'Baja'), a.fecha_creacion DESC, a.id_alerta DESC";
 
 async function listar(req, res) {
   const labs = await laboratoriosPermitidos(req.user);
-  const where = [];
-  const params = [];
+  const where = ['e.id_institucion = ?'];
+  const params = [req.user.idInstitucion];
   filtroLaboratorios(labs, 'e.id_laboratorio', where, params);
   const estado = req.query.estado || 'Activa';
   if (estado !== 'todas') {
@@ -73,8 +76,8 @@ async function listar(req, res) {
 
 async function resumen(req, res) {
   const labs = await laboratoriosPermitidos(req.user);
-  const where = ["a.estado = 'Activa'"];
-  const params = [];
+  const where = ["a.estado = 'Activa'", 'e.id_institucion = ?'];
+  const params = [req.user.idInstitucion];
   filtroLaboratorios(labs, 'e.id_laboratorio', where, params);
   const [r] = await query(
     `SELECT COUNT(*) AS activas, SUM(a.severidad IN ('Alta', 'Critica')) AS urgentes,
@@ -104,9 +107,13 @@ async function insertarSiNoExiste(idEquipo, titulo, descripcion, severidad, dias
 
 const fechaTexto = (d) => { const s = String(d).slice(0, 10); return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`; };
 
-async function generarAlertasAutomaticas() {
+// Recorre los equipos de las instituciones que no estan suspendidas (o solo de idInstitucion,
+// cuando un administrador pide la verificacion). Cada alerta se envia solo a su institucion.
+async function generarAlertasAutomaticas(idInstitucion = null) {
   const creadas = [];
   const limite = diasPreventivo();
+  const filtroInst = `AND EXISTS (SELECT 1 FROM instituciones i WHERE i.id_institucion = e.id_institucion AND i.estado <> 'Suspendida')${idInstitucion ? ' AND e.id_institucion = ?' : ''}`;
+  const pInst = idInstitucion ? [idInstitucion] : [];
 
   // 1) Preventivo vencido: se cuenta desde el ultimo preventivo completado o, si nunca tuvo, desde el alta.
   const vencidos = await query(
@@ -115,12 +122,12 @@ async function generarAlertasAutomaticas() {
               (SELECT MAX(m.fecha_mantenimiento) FROM mantenimientos m
                 WHERE m.id_equipo = e.id_equipo AND m.tipo = 'Preventivo' AND m.estado = 'Completado') AS ultimo
          FROM equipos e JOIN laboratorios l ON l.id_laboratorio = e.id_laboratorio
-        WHERE l.estado = 'Activo' AND e.estado <> 'Fuera de servicio'
+        WHERE l.estado = 'Activo' AND e.estado <> 'Fuera de servicio' ${filtroInst}
           AND NOT EXISTS (SELECT 1 FROM mantenimientos m WHERE m.id_equipo = e.id_equipo AND m.tipo = 'Preventivo' AND m.estado <> 'Completado')
           AND NOT EXISTS (SELECT 1 FROM alertas a WHERE a.id_equipo = e.id_equipo AND a.titulo = ? AND a.estado = 'Activa')
      ) x
      WHERE DATEDIFF(CURDATE(), COALESCE(GREATEST(x.alta, x.ultimo), x.alta)) >= ?`,
-    [TITULO_PREVENTIVO, limite],
+    [...pInst, TITULO_PREVENTIVO, limite],
   );
   for (const v of vencidos) {
     const desde = v.ultimo && String(v.ultimo) > String(v.alta) ? v.ultimo : v.alta;
@@ -138,10 +145,11 @@ async function generarAlertasAutomaticas() {
        FROM mantenimientos m
        JOIN equipos e ON e.id_equipo = m.id_equipo
        JOIN laboratorios l ON l.id_laboratorio = e.id_laboratorio
-      WHERE m.estado = 'Pendiente' AND m.fecha_mantenimiento < CURDATE() AND l.estado = 'Activo'
+      WHERE m.estado = 'Pendiente' AND m.fecha_mantenimiento < CURDATE() AND l.estado = 'Activo' ${filtroInst}
         AND m.id_mantenimiento = (SELECT m2.id_mantenimiento FROM mantenimientos m2
                                    WHERE m2.id_equipo = m.id_equipo AND m2.estado = 'Pendiente' AND m2.fecha_mantenimiento < CURDATE()
                                    ORDER BY m2.fecha_mantenimiento, m2.id_mantenimiento LIMIT 1)`,
+    pInst,
   );
   for (const m of atrasados) {
     const descripcion = `El mantenimiento ${m.tipo.toLowerCase()} N.º ${m.id_mantenimiento} estaba programado para el ${fechaTexto(m.fecha_mantenimiento)} y sigue pendiente: ${m.detalle}`;
@@ -154,8 +162,8 @@ async function generarAlertasAutomaticas() {
 }
 
 async function verificar(req, res) {
-  const creadas = await generarAlertasAutomaticas();
-  res.json({ creadas: creadas.length, alertas: await Promise.all(creadas.map(obtenerAlerta)) });
+  const creadas = await generarAlertasAutomaticas(req.user.idInstitucion);
+  res.json({ creadas: creadas.length, alertas: await Promise.all(creadas.map((id) => obtenerAlerta(id, req.user.idInstitucion))) });
 }
 
 // Verificacion periodica (la inicia server.js).

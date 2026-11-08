@@ -42,7 +42,10 @@ const SELECT_MANTENIMIENTO = `
 
 const puedeGestionar = (user) => ROLES_GESTION_MANTENIMIENTO.includes(user.rol);
 
+// Siempre: equipos de la institucion del usuario y de sus laboratorios permitidos.
 function filtrosComunes(req, labs, where, params) {
+  where.push('e.id_institucion = ?');
+  params.push(req.user.idInstitucion);
   filtroLaboratorios(labs, 'e.id_laboratorio', where, params);
   if (req.query.laboratorio) {
     where.push('e.id_laboratorio = ?');
@@ -166,11 +169,12 @@ async function listar(req, res) {
   res.json(rows);
 }
 
+// De otra institucion: 404. De la institucion pero de un laboratorio no asignado: 403.
 async function obtenerMantenimientoAutorizado(user, id) {
-  const rows = await query(`${SELECT_MANTENIMIENTO} WHERE m.id_mantenimiento = ?`, [id]);
+  const rows = await query(`${SELECT_MANTENIMIENTO} WHERE m.id_mantenimiento = ? AND e.id_institucion = ?`, [id, user.idInstitucion]);
   if (!rows.length) throw new HttpError(404, 'El mantenimiento no existe.');
   const labs = await laboratoriosPermitidos(user);
-  if (labs !== null && !labs.includes(rows[0].id_laboratorio)) {
+  if (!labs.includes(rows[0].id_laboratorio)) {
     throw new HttpError(403, 'No tenés acceso a ese laboratorio.');
   }
   return rows[0];
@@ -199,11 +203,12 @@ async function historialEquipo(req, res) {
     `SELECT h.id_accion, h.accion, h.entidad, h.id_registro, h.detalle, h.fecha_hora,
             CONCAT(u.nombre, ' ', u.apellido) AS usuario
        FROM historial_acciones h JOIN usuarios u ON u.id_usuario = h.id_usuario
-      WHERE (h.entidad = 'Equipo' AND h.id_registro = ?)
+      WHERE h.id_institucion = ?
+        AND ((h.entidad = 'Equipo' AND h.id_registro = ?)
          OR (h.entidad = 'Mantenimiento' AND h.id_registro IN (?))
-         OR (h.entidad = 'Alerta' AND h.id_registro IN (?))
+         OR (h.entidad = 'Alerta' AND h.id_registro IN (?)))
       ORDER BY h.fecha_hora DESC, h.id_accion DESC`,
-    [id, idsM.length ? idsM : [0], idsA.length ? idsA : [0]],
+    [req.user.idInstitucion, id, idsM.length ? idsM : [0], idsA.length ? idsA : [0]],
   );
   res.json({
     equipo: {
@@ -409,7 +414,10 @@ async function reportarProblema(req, res) {
 
 async function resolverProblema(req, res) {
   const id = enteroPositivo(req.params.id, 'El problema');
-  const rows = await query('SELECT * FROM alertas WHERE id_alerta = ?', [id]);
+  const rows = await query(
+    'SELECT a.* FROM alertas a JOIN equipos e ON e.id_equipo = a.id_equipo WHERE a.id_alerta = ? AND e.id_institucion = ?',
+    [id, req.user.idInstitucion],
+  );
   if (!rows.length) throw new HttpError(404, 'El problema no existe.');
   await obtenerEquipoAutorizado(req.user, rows[0].id_equipo);
   if (rows[0].estado === 'Resuelta') throw new HttpError(409, 'El problema ya estaba resuelto.');

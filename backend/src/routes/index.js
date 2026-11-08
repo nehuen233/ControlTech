@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const { asyncHandler: h } = require('../utils/httpError');
-const { autenticar, permitirRoles } = require('../middlewares/auth');
+const { autenticar: autenticarBase, requiereInstitucion, permitirRoles } = require('../middlewares/auth');
 const { ROLES, ROLES_GESTION_MANTENIMIENTO, ROLES_REPORTE_PROBLEMAS } = require('../utils/roles');
 const auth = require('../controllers/authController');
 const usuarios = require('../controllers/usuariosController');
@@ -26,7 +26,11 @@ r.get('/health', async (_req, res) => {
 // Autenticacion
 r.post('/auth/login', h(auth.login));
 r.post('/auth/recuperar', h(auth.recuperar));
-r.get('/auth/me', autenticar, h(auth.me));
+r.get('/auth/me', autenticarBase, h(auth.me));
+
+// Todo lo que sigue son rutas de un colegio: exigen un usuario de una institucion (el
+// SUPERADMIN no ve datos internos). La institucion sale de la base, nunca del cliente.
+const autenticar = [autenticarBase, requiereInstitucion];
 
 // Usuarios y roles: solo el administrador
 const soloAdmin = [autenticar, permitirRoles(ROLES.ADMIN)];
@@ -44,7 +48,8 @@ r.delete('/usuarios/:id', soloAdmin, h(usuarios.eliminar));
 const verAlertas = [autenticar, permitirRoles(ROLES.ADMIN, ROLES.DIRECTIVO, ROLES_GESTION_MANTENIMIENTO)];
 r.get('/alertas', verAlertas, h(alertas.listar));
 r.get('/alertas/resumen', verAlertas, h(alertas.resumen));
-r.get('/alertas/stream', autenticar, h(alertas.stream));
+// El stream acepta tambien al SUPERADMIN (no recibe eventos de ningun colegio).
+r.get('/alertas/stream', autenticarBase, h(alertas.stream));
 r.post('/alertas/verificar', soloAdmin, h(alertas.verificar));
 
 // Laboratorios (filtrados por los laboratorios del usuario; alta y edicion solo el administrador)

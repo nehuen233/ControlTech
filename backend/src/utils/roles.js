@@ -6,13 +6,15 @@ const ROLES = Object.freeze({
   DIRECTIVO: 'DIRECTIVO',
   TECNICO: 'TECNICO',
   DOCENTE_LAB: 'DOCENTE DE LABORATORIO',
+  // Administra la plataforma (instituciones). No pertenece a ningun colegio.
+  SUPERADMIN: 'SUPERADMIN',
 });
 
 // Unicos roles que el administrador puede asignar a usuarios nuevos o existentes.
 // Administrador, Encargado y Directivo nunca se asignan desde el sistema.
 const ROLES_ASIGNABLES = Object.freeze([ROLES.DOCENTE, ROLES.DOCENTE_LAB, ROLES.TECNICO]);
 
-// Roles que ven todos los laboratorios.
+// Roles que ven todos los laboratorios DE SU INSTITUCION.
 const ROLES_TODOS_LOS_LABS = Object.freeze([ROLES.ADMIN, ROLES.DIRECTIVO]);
   
 // Roles que gestionan mantenimientos (alta, edicion y cambio de estado) en sus laboratorios.
@@ -30,6 +32,7 @@ const ETIQUETAS = Object.freeze({
   [ROLES.DIRECTIVO]: 'Directivo',
   [ROLES.TECNICO]: 'Técnico',
   [ROLES.DOCENTE_LAB]: 'Docente de laboratorio',
+  [ROLES.SUPERADMIN]: 'Superadministrador',
 });
 
 const etiquetaRol = (nombre) => ETIQUETAS[nombre] || nombre;
