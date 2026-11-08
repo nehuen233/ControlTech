@@ -10,6 +10,7 @@ export const ROLES = {
   TECNICO: 'TECNICO',
   ENCARGADO: 'ENCARGADO',
   DIRECTIVO: 'DIRECTIVO',
+  SUPERADMIN: 'SUPERADMIN',
 }
 // Coinciden con los permisos que valida el backend.
 export const ROLES_GESTION = [ROLES.ADMIN, ROLES.TECNICO, ROLES.ENCARGADO, ROLES.DOCENTE_LAB]
@@ -17,6 +18,8 @@ export const ROLES_REPORTE = [...ROLES_GESTION, ROLES.DOCENTE]
 
 export function AuthProvider({ children }) {
   const [usuario, setUsuario] = useState(null)
+  // Institucion del usuario: { id, nombre, logo_url, estado, configurada } (null para el SUPERADMIN).
+  const [institucion, setInstitucion] = useState(null)
   const [cargando, setCargando] = useState(Boolean(getToken()))
   // Motivo del ultimo cierre de sesion forzado (cuenta bloqueada o eliminada, sesion vencida).
   const [aviso, setAviso] = useState('')
@@ -24,6 +27,7 @@ export function AuthProvider({ children }) {
   const logout = useCallback((motivo) => {
     setToken(null)
     setUsuario(null)
+    setInstitucion(null)
     setAviso(typeof motivo === 'string' ? motivo : '')
   }, [])
 
@@ -31,7 +35,7 @@ export function AuthProvider({ children }) {
     setUnauthorizedHandler(logout)
     if (!getToken()) return
     api('/auth/me')
-      .then((d) => setUsuario(d.usuario))
+      .then((d) => { setUsuario(d.usuario); setInstitucion(d.institucion || null) })
       .catch(() => logout())
       .finally(() => setCargando(false))
   }, [logout])
@@ -41,6 +45,7 @@ export function AuthProvider({ children }) {
     setToken(d.token)
     setAviso('')
     setUsuario(d.usuario)
+    setInstitucion(d.institucion || null)
   }
 
   const value = {
@@ -49,7 +54,11 @@ export function AuthProvider({ children }) {
     login,
     logout,
     aviso,
+    institucion,
+    // Tras editar la institucion (nombre, configuracion inicial) se actualiza la barra lateral.
+    actualizarInstitucion: (i) => setInstitucion((prev) => ({ ...prev, ...i })),
     esAdmin: usuario?.rol === ROLES.ADMIN,
+    esSuperadmin: usuario?.rol === ROLES.SUPERADMIN,
     puedeGestionar: ROLES_GESTION.includes(usuario?.rol),
     puedeReportar: ROLES_REPORTE.includes(usuario?.rol),
   }

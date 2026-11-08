@@ -6,6 +6,8 @@ import Laboratorios from './pages/Laboratorios.jsx'
 import Equipos from './pages/Equipos.jsx'
 import Mantenimientos from './pages/Mantenimientos.jsx'
 import Usuarios from './pages/Usuarios.jsx'
+import Instituciones from './pages/Instituciones.jsx'
+import ConfigurarInstitucion from './components/ConfigurarInstitucion.jsx'
 import { Cargando } from './components/ui.jsx'
 import { Campana, useAlertas } from './components/Alertas.jsx'
 
@@ -18,14 +20,19 @@ const SECCIONES = [
   { id: 'mantenimientos', titulo: 'Mantenimientos', componente: Mantenimientos },
   { id: 'usuarios', titulo: 'Usuarios', componente: Usuarios, soloAdmin: true },
 ]
+// El SUPERADMIN administra la plataforma: solo ve las instituciones, no los datos de un colegio.
+const SECCIONES_PLATAFORMA = [
+  { id: 'instituciones', titulo: 'Instituciones', componente: Instituciones },
+]
 
 const leerHash = () => window.location.hash.replace(/^#\/?/, '') || 'inicio'
 
 export default function App() {
-  const { usuario, cargando, logout, esAdmin } = useAuth()
+  const { usuario, cargando, logout, esAdmin, esSuperadmin, institucion } = useAuth()
   const { solicitudes } = useAlertas()
   const [ruta, setRuta] = useState(leerHash)
   const [menuAbierto, setMenuAbierto] = useState(false)
+  const [configurando, setConfigurando] = useState(false)
 
   useEffect(() => {
     const onHash = () => { setRuta(leerHash()); setMenuAbierto(false) }
@@ -36,7 +43,8 @@ export default function App() {
   if (cargando) return <Cargando texto="Verificando sesión…" />
   if (!usuario) return <Login />
 
-  const visibles = SECCIONES.filter((s) => !s.soloAdmin || esAdmin)
+  const visibles = esSuperadmin ? SECCIONES_PLATAFORMA : SECCIONES.filter((s) => !s.soloAdmin || esAdmin)
+  const falteConfigurar = esAdmin && institucion && Number(institucion.configurada) === 0
   const actual = visibles.find((s) => s.id === ruta.split(/[?/]/)[0]) || visibles[0]
   const Pagina = actual.componente
 
@@ -45,7 +53,10 @@ export default function App() {
       <aside className={`sidebar ${menuAbierto ? 'abierta' : ''}`}>
         <div className="marca">
           <span className="marca-logo" aria-hidden="true">CT</span>
-          <span>ControlTech</span>
+          <span className="marca-textos">
+            <span>ControlTech</span>
+            <span className="marca-institucion" title={institucion?.nombre}>{esSuperadmin ? 'Plataforma' : institucion?.nombre}</span>
+          </span>
         </div>
         <nav aria-label="Secciones">
           {visibles.map((s) => (
@@ -70,6 +81,13 @@ export default function App() {
           <Campana />
         </header>
         <main>
+          {falteConfigurar && (
+            <div className="alerta alerta-aviso aviso-config" role="status">
+              <span><strong>Completá la configuración inicial de tu institución.</strong> Revisá los datos del colegio (nombre, CUIT, dirección y contacto) para terminar de prepararla.</span>
+              <button type="button" className="btn btn-primario" onClick={() => setConfigurando(true)}>Completar ahora</button>
+            </div>
+          )}
+          {configurando && <ConfigurarInstitucion onClose={() => setConfigurando(false)} />}
           <Pagina key={actual.id} />
         </main>
       </div>
