@@ -9,6 +9,7 @@ const equipos = require('../controllers/equiposController');
 const software = require('../controllers/softwareController');
 const alertas = require('../controllers/alertasController');
 const mant = require('../controllers/mantenimientosController');
+const inst = require('../controllers/institucionController');
 const { pool } = require('../config/db');
 const { explicarErrorMySQL } = require('../config/diagnostico');
 
@@ -31,6 +32,17 @@ r.get('/auth/me', autenticarBase, h(auth.me));
 // Todo lo que sigue son rutas de un colegio: exigen un usuario de una institucion (el
 // SUPERADMIN no ve datos internos). La institucion sale de la base, nunca del cliente.
 const autenticar = [autenticarBase, requiereInstitucion];
+
+// Plataforma: solo el SUPERADMIN (alta y estado de instituciones)
+const soloSuperadmin = [autenticarBase, permitirRoles(ROLES.SUPERADMIN)];
+r.get('/plataforma/instituciones', soloSuperadmin, h(inst.listarInstituciones));
+r.post('/plataforma/instituciones', soloSuperadmin, h(inst.crearInstitucion));
+r.patch('/plataforma/instituciones/:id/estado', soloSuperadmin, h(inst.cambiarEstado));
+
+// Institucion del usuario: la ven todos; la edita el administrador
+r.get('/institucion', autenticar, h(inst.ver));
+r.put('/institucion', autenticar, permitirRoles(ROLES.ADMIN), h(inst.actualizar));
+r.patch('/institucion/configurada', autenticar, permitirRoles(ROLES.ADMIN), h(inst.marcarConfigurada));
 
 // Usuarios y roles: solo el administrador
 const soloAdmin = [autenticar, permitirRoles(ROLES.ADMIN)];
