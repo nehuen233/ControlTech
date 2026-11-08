@@ -31,6 +31,8 @@ pool.query('SELECT 1')
     console.log(`Conectado a MySQL (${process.env.DB_NAME || 'controltecchh'})`);
     const esq = await asegurarEsquemaUnaVez();
     for (const e of Object.values(esq.errores)) console.warn(`AVISO ${e}`);
+    for (const a of esq.avisos) console.warn(`AVISO ${a}`);
+    if (esq.multi) console.log('Esquema multi-institución disponible.');
     if (esq.bloqueo) console.log('Bloqueo de usuarios disponible.');
     if (esq.solicitudes) console.log('Recuperación de contraseña disponible.');
     const creados = await asegurarRolesAsignables().catch((err) => {

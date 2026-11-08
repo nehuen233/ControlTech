@@ -2,11 +2,14 @@
 // no borran ni modifican datos.
 //   001 - usuarios.bloqueado: permite al administrador bloquear cuentas.
 //   002 - tabla solicitudes_contrasena: pedidos de "¿Olvidaste tu contraseña?".
+//   003 - multi-institucion (config/migracion003.js): instituciones, id_institucion en las
+//         tablas, unicidades por institucion, rol SUPERADMIN.
 // Si el usuario de MySQL no tiene permiso (ALTER / CREATE), el resto del sistema sigue
 // funcionando sin esa funcion y se indica el archivo de backend/sql/migraciones a ejecutar.
 const { query } = require('./db');
+const migracion003 = require('./migracion003');
 
-const estado = { bloqueo: false, solicitudes: false, verificado: false, error: null, errores: {} };
+const estado = { bloqueo: false, solicitudes: false, multi: false, verificado: false, error: null, errores: {}, avisos: [] };
 
 const SQL_BLOQUEO = 'ALTER TABLE usuarios ADD COLUMN bloqueado TINYINT(1) NOT NULL DEFAULT 0';
 const SQL_SOLICITUDES = `CREATE TABLE IF NOT EXISTS solicitudes_contrasena (
@@ -65,6 +68,22 @@ async function asegurarEsquema() {
         r.errores.push(estado.errores[m.clave]);
       }
     }
+  }
+  // 003 - multi-institucion (varios pasos, cada uno idempotente)
+  try {
+    const m = await migracion003.migrar();
+    r.agregadas.push(...m.hechos);
+    estado.avisos = m.avisos;
+  } catch (err) {
+    r.errores.push(`Migración 003: ${err.code || err.message}`);
+  }
+  estado.multi = await migracion003.aplicada().catch(() => false);
+  if (!estado.multi) {
+    estado.errores.multi = 'La base todavía no tiene el esquema multi-institución. '
+      + 'Ejecutá backend/sql/migraciones/003_multi_institucion.sql con un usuario de MySQL con permisos ALTER, CREATE, INDEX y REFERENCES (por ejemplo root) y reiniciá el backend.';
+    r.errores.push(estado.errores.multi);
+  } else {
+    delete estado.errores.multi;
   }
   estado.error = estado.errores.bloqueo || null; // compatibilidad: mensaje del bloqueo
   estado.verificado = true;
