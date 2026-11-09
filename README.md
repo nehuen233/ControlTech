@@ -27,9 +27,12 @@ laboratorios, equipos, software, licencias, mantenimientos, alertas e historial.
   en el momento; sus datos no se borran y vuelven al reactivarla.
 - **Superadministrador (SUPERADMIN)**: administra la plataforma. No pertenece a ningún colegio y
   no ve sus datos internos: solo la sección **Instituciones** (alta, estado y totales).
-- **Administrador de cada colegio**: lo crea el SUPERADMIN junto con la institución. Al ingresar
-  por primera vez ve el aviso *"Completá la configuración inicial de tu institución"* para
-  revisar nombre, CUIT, dirección y contacto. Desde ahí gestiona su colegio como siempre.
+- **Administrador de cada colegio**: lo crea el SUPERADMIN junto con la institución. Mientras el
+  colegio no está configurado, al iniciar sesión entra al asistente **Primeros pasos**
+  (`#/primeros-pasos`): datos del colegio, laboratorios, computadoras (en serie o pegadas desde
+  una planilla), equipo de trabajo, software y resumen. Puede salir con "Terminar más tarde" y
+  retomarlo desde el aviso "Configuración X de 5"; el progreso se calcula con los datos reales.
+  Los demás roles no ven el asistente.
 
 ### Dar de alta un colegio
 
@@ -155,6 +158,7 @@ Son pruebas de integración contra la API y MySQL reales:
 - `api.test.js`: cada corrida crea **su propia institución** (por la API del SUPERADMIN), le carga
   los datos de demostración y prueba todas las funciones; al final verifica que ninguna otra
   institución cambió.
+- `primeros-pasos.test.js`: alta de computadoras en lote (errores por fila, capacidad, aislamiento) y contraseña inicial generada.
 - `instituciones.test.js`: aislamiento entre dos instituciones A y B (listar, ver, crear, modificar
   y borrar), unicidades por institución, eventos en tiempo real, suspensión y SUPERADMIN.
 - `migracion.test.js`: migra una copia del esquema anterior (`tests/fixtures`) en una base
@@ -290,7 +294,7 @@ Todas las rutas de un colegio responden `403` al SUPERADMIN, y `403` con `codigo
 | GET / POST | `/api/plataforma/instituciones` (alta con su primer administrador) | SUPERADMIN |
 | PATCH | `/api/plataforma/instituciones/:id/estado` | SUPERADMIN |
 | GET | `/api/roles/asignables` | administrador |
-| GET / POST | `/api/usuarios` | administrador |
+| GET / POST | `/api/usuarios` (`generar: true` crea la contraseña inicial y la devuelve una vez) | administrador |
 | PATCH | `/api/usuarios/:id/rol` | administrador |
 | GET | `/api/laboratorios`, `/api/laboratorios/:id` | autenticado (filtrado por laboratorio) |
 | POST / PUT / DELETE | `/api/laboratorios`, `/api/laboratorios/:id` | administrador |
@@ -299,6 +303,7 @@ Todas las rutas de un colegio responden `403` al SUPERADMIN, y `403` con `codigo
 | POST / PUT / DELETE | `/api/laboratorios/:id/software`, `/api/laboratorios/:id/software/:idSoftware` | gestión, en sus laboratorios |
 | GET | `/api/equipos`, `/api/equipos/:id`, `/api/software` | autenticado (filtrado por laboratorio) |
 | POST / PUT | `/api/equipos`, `/api/equipos/:id` | gestión, en sus laboratorios |
+| POST | `/api/equipos/lote` (`{ id_laboratorio, equipos }`, errores por fila en `detalles`) | gestión, en sus laboratorios |
 | DELETE | `/api/equipos/:id` | administrador |
 | PATCH | `/api/usuarios/:id/bloqueo` | administrador |
 | POST | `/api/auth/recuperar` | público |

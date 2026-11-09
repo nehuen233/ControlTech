@@ -283,7 +283,6 @@ tr:last-child td { border-bottom: 0; }
 .contrasena-nueva { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 1rem; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface-2); }
 .contrasena-nueva code { font-size: 1.15rem; font-weight: 700; letter-spacing: .04em; word-break: break-all; }
 
-/* Multi-institución: nombre del colegio bajo la marca y aviso de configuración inicial */
+/* Multi-institución: nombre del colegio bajo la marca */
 .marca-textos { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 .marca-institucion { font-size: .75rem; font-weight: 500; color: var(--sidebar-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
-.aviso-config { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
