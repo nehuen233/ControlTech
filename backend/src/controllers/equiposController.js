@@ -4,7 +4,7 @@ const { query, withTransaction } = require('../config/db');
 const { HttpError } = require('../utils/httpError');
 const { laboratoriosPermitidos, filtroLaboratorios, verificarAccesoLaboratorio, obtenerEquipoAutorizado } = require('../utils/acceso');
 const { registrarAccion } = require('../utils/historial');
-const { capacidadEfectiva } = require('../utils/capacidad');
+const { capacidadEfectiva, CAPACIDAD_MAX } = require('../utils/capacidad');
 const { ESTADOS_EQUIPO, enumOpcional, texto, enteroPositivo, fechaValida } = require('../utils/validacion');
 
 const LIMITES = {
@@ -231,6 +231,73 @@ async function crear(req, res) {
   res.status(201).json(await obtenerFicha(id));
 }
 
+// Alta de varias computadoras de un laboratorio en una sola operacion (asistente de
+// configuracion inicial: generar en serie o pegar desde una planilla). Cada fila pasa por las
+// mismas validaciones que el alta individual; si alguna falla no se guarda ninguna y se
+// devuelven los errores por fila: detalles = [{ fila, error }] (fila empieza en 1).
+async function crearLote(req, res) {
+  const b = req.body || {};
+  const idLab = enteroPositivo(b.id_laboratorio, 'El laboratorio');
+  if (!Array.isArray(b.equipos) || b.equipos.length === 0) throw new HttpError(400, 'Agregá al menos una computadora.');
+  if (b.equipos.length > CAPACIDAD_MAX) throw new HttpError(400, `Se pueden cargar hasta ${CAPACIDAD_MAX} computadoras por vez.`);
+
+  // Laboratorio: de la institucion, con acceso, activo y con lugar para todo el lote.
+  await validarReferencias(req.user, { idLab, validarLab: true });
+  const [lab] = await query(
+    'SELECT l.nombre, l.capacidad_equipos, (SELECT COUNT(*) FROM equipos e WHERE e.id_laboratorio = l.id_laboratorio) AS ocupados FROM laboratorios l WHERE l.id_laboratorio = ?',
+    [idLab],
+  );
+  const libres = capacidadEfectiva(lab.capacidad_equipos) - Number(lab.ocupados);
+  if (b.equipos.length > libres) {
+    throw new HttpError(409, `El ${lab.nombre} tiene lugar para ${libres} computadora(s) más y querés agregar ${b.equipos.length}.`, { libres });
+  }
+
+  const filas = [];
+  const errores = [];
+  const vistos = { identificador: new Map(), nro_serie: new Map() };
+  for (const [i, item] of b.equipos.entries()) {
+    const fila = i + 1;
+    try {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) throw new HttpError(400, 'La fila no es válida.');
+      // La institucion y el laboratorio salen del pedido, nunca de cada fila.
+      const { id_institucion: _i, id_laboratorio: _l, ...datos } = item;
+      const { campos, software } = leerCampos({ ...datos, id_laboratorio: idLab }, false);
+      for (const k of ['identificador', 'nro_serie']) {
+        const previa = vistos[k].get(campos[k]);
+        if (previa) throw new HttpError(400, `${k === 'identificador' ? 'El identificador' : 'El número de serie'} ${campos[k]} se repite en la fila ${previa}.`);
+        vistos[k].set(campos[k], fila);
+      }
+      await validarReferencias(req.user, { idLab, validarLab: false, idResponsable: campos.id_responsable, software });
+      await verificarUnicos(campos, req.user.idInstitucion);
+      filas.push({ campos, software });
+    } catch (err) {
+      if (!err.status) throw err;
+      errores.push({ fila, error: err.message });
+    }
+  }
+  if (errores.length) {
+    throw new HttpError(400, errores.length === 1
+      ? `La fila ${errores[0].fila} tiene un error: ${errores[0].error}`
+      : `Hay ${errores.length} filas con errores. Corregilas y volvé a guardar.`, errores);
+  }
+
+  const ids = await withTransaction(async (conn) => {
+    const creados = [];
+    for (const { campos, software } of filas) {
+      const [r] = await conn.query('INSERT INTO equipos SET ?', [{ ...campos, id_institucion: req.user.idInstitucion }]);
+      await guardarSoftware(conn, r.insertId, software);
+      await registrarAccion(conn, {
+        idUsuario: req.user.id, accion: 'Crear', entidad: 'Equipo', idRegistro: r.insertId,
+        detalle: `Alta del equipo ${campos.identificador} (carga de ${filas.length} computadoras en el ${lab.nombre}).`,
+      });
+      creados.push(r.insertId);
+    }
+    return creados;
+  });
+  const equipos = await query(`${SELECT_EQUIPO} WHERE e.id_equipo IN (?) ORDER BY e.identificador`, [ids]);
+  res.status(201).json({ creados: ids.length, equipos });
+}
+
 async function actualizar(req, res) {
   const id = enteroPositivo(req.params.id, 'El equipo');
   const actual = await obtenerEquipoAutorizado(req.user, id);
@@ -297,4 +364,4 @@ async function eliminar(req, res) {
   res.json({ id_equipo: id, identificador: eq.identificador, mantenimientos_eliminados: mantenimientos, problemas_eliminados: alertas, software_desinstalado: resultado.software });
 }
 
-module.exports = { listar, detalle, crear, actualizar, eliminar, marcaBaja };
+module.exports = { listar, detalle, crear, crearLote, actualizar, eliminar, marcaBaja };
