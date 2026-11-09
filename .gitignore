@@ -1,3 +1,7 @@
 node_modules/
 .env
 dist/
+
+# Respaldos de la base (mysqldump): tienen usuarios y contraseñas, no se suben
+respaldo*.sql
+*.dump
