@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { api, getToken, setToken, setUnauthorizedHandler } from './api.js'
+import { olvidarDespues } from './pages/PrimerosPasos/progreso.js'
 
 const AuthContext = createContext(null)
 
@@ -43,6 +44,8 @@ export function AuthProvider({ children }) {
   const login = async (email, contrasena) => {
     const d = await api('/auth/login', { method: 'POST', body: { email, contrasena } })
     setToken(d.token)
+    // Cada inicio de sesión vuelve a mostrar el asistente de configuración si falta.
+    olvidarDespues()
     setAviso('')
     setUsuario(d.usuario)
     setInstitucion(d.institucion || null)

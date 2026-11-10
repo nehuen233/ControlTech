@@ -155,7 +155,9 @@ async function crear(req, res) {
   const nombre = texto(req.body?.nombre);
   const apellido = texto(req.body?.apellido);
   const email = texto(req.body?.email).toLowerCase();
-  const contrasena = typeof req.body?.contrasena === 'string' ? req.body.contrasena : '';
+  // generar: true → el sistema crea una contraseña temporal y la devuelve UNA sola vez.
+  const generar = req.body?.generar === true;
+  const contrasena = generar ? generarTemporal() : (typeof req.body?.contrasena === 'string' ? req.body.contrasena : '');
 
   const errores = [];
   if (!nombre) errores.push('El nombre es obligatorio.');
@@ -193,6 +195,7 @@ async function crear(req, res) {
   res.status(201).json({
     id_usuario: id, nombre, apellido, email, id_rol: rol.id_rol,
     nombre_rol: rol.nombre_rol, rolEtiqueta: etiquetaRol(rol.nombre_rol), ids_laboratorios: labs,
+    ...(generar ? { contrasena_temporal: contrasena } : {}),
   });
 }
 

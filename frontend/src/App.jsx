@@ -7,7 +7,9 @@ import Equipos from './pages/Equipos.jsx'
 import Mantenimientos from './pages/Mantenimientos.jsx'
 import Usuarios from './pages/Usuarios.jsx'
 import Instituciones from './pages/Instituciones.jsx'
-import ConfigurarInstitucion from './components/ConfigurarInstitucion.jsx'
+import PrimerosPasos from './pages/PrimerosPasos/index.jsx'
+import AvisoProgreso from './components/AvisoProgreso.jsx'
+import { RUTA as RUTA_PRIMEROS_PASOS, dejadoParaDespues } from './pages/PrimerosPasos/progreso.js'
 import { Cargando } from './components/ui.jsx'
 import { Campana, useAlertas } from './components/Alertas.jsx'
 
@@ -32,7 +34,6 @@ export default function App() {
   const { solicitudes } = useAlertas()
   const [ruta, setRuta] = useState(leerHash)
   const [menuAbierto, setMenuAbierto] = useState(false)
-  const [configurando, setConfigurando] = useState(false)
 
   useEffect(() => {
     const onHash = () => { setRuta(leerHash()); setMenuAbierto(false) }
@@ -44,7 +45,12 @@ export default function App() {
   if (!usuario) return <Login />
 
   const visibles = esSuperadmin ? SECCIONES_PLATAFORMA : SECCIONES.filter((s) => !s.soloAdmin || esAdmin)
+  // Configuración inicial: solo para el ADMINISTRADOR de un colegio sin configurar. Entra
+  // directo al asistente, salvo que en esta sesión haya elegido "Terminar más tarde"; en ese
+  // caso ve el aviso compacto con su progreso. Los demás roles no ven nada de esto.
   const falteConfigurar = esAdmin && institucion && Number(institucion.configurada) === 0
+  const enAsistente = esAdmin && ruta.split('/')[0] === RUTA_PRIMEROS_PASOS
+  if (enAsistente || (falteConfigurar && !dejadoParaDespues(usuario.id))) return <PrimerosPasos />
   const actual = visibles.find((s) => s.id === ruta.split(/[?/]/)[0]) || visibles[0]
   const Pagina = actual.componente
 
@@ -81,13 +87,7 @@ export default function App() {
           <Campana />
         </header>
         <main>
-          {falteConfigurar && (
-            <div className="alerta alerta-aviso aviso-config" role="status">
-              <span><strong>Completá la configuración inicial de tu institución.</strong> Revisá los datos del colegio (nombre, CUIT, dirección y contacto) para terminar de prepararla.</span>
-              <button type="button" className="btn btn-primario" onClick={() => setConfigurando(true)}>Completar ahora</button>
-            </div>
-          )}
-          {configurando && <ConfigurarInstitucion onClose={() => setConfigurando(false)} />}
+          {falteConfigurar && <AvisoProgreso />}
           <Pagina key={actual.id} />
         </main>
       </div>
