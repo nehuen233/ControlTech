@@ -9,7 +9,8 @@ const { etiquetaRol } = require('../utils/roles');
 const { laboratoriosPermitidos } = require('../utils/acceso');
 const { texto } = require('../utils/validacion');
 const { colBloqueado } = require('../config/esquema');
-const { exigirEsquemaMulti, MENSAJE_SUSPENDIDA } = require('../middlewares/auth');
+const { exigirEsquemaMulti, errorSuspendida } = require('../middlewares/auth');
+const cobros = require('../utils/cobros');
 
 // Datos publicos de la institucion del usuario (null para el SUPERADMIN).
 async function institucionDe(idInstitucion) {
@@ -34,7 +35,7 @@ async function login(req, res) {
   await exigirEsquemaMulti();
   const rows = await query(
     `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.contrasena, r.nombre_rol, ${colBloqueado()} AS bloqueado,
-            u.id_institucion, i.estado AS estado_institucion
+            u.id_institucion, i.estado AS estado_institucion, ${esquema.pagos ? 'i.motivo_suspension' : 'NULL'} AS motivo_suspension
        FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol
        LEFT JOIN instituciones i ON i.id_institucion = u.id_institucion
       WHERE LOWER(u.email) = ?`,
@@ -48,7 +49,15 @@ async function login(req, res) {
   if (Number(u.bloqueado)) {
     throw new HttpError(403, 'Tu cuenta está bloqueada. Consultá con el administrador del sistema.', { codigo: 'CUENTA_BLOQUEADA' });
   }
-  if (u.estado_institucion === 'Suspendida') throw new HttpError(403, MENSAJE_SUSPENDIDA, { codigo: 'INSTITUCION_SUSPENDIDA' });
+  if (u.estado_institucion === 'Suspendida') {
+    // Suspendida por falta de pago: con la contraseña correcta se muestra como pagar, para que
+    // el colegio pueda regularizar sin entrar al sistema.
+    if (u.motivo_suspension === 'Falta de pago') {
+      const [cuenta] = await cobros.estadoDeCuenta({ idInstitucion: u.id_institucion });
+      throw errorSuspendida(u.motivo_suspension, { deuda: cuenta?.deuda ?? null, datos_pago: cobros.datosDePago() });
+    }
+    throw errorSuspendida(u.motivo_suspension);
+  }
   const user = {
     id: u.id_usuario, nombre: u.nombre, apellido: u.apellido, email: u.email, rol: u.nombre_rol,
     idInstitucion: u.id_institucion ?? null, esSuperadmin: u.nombre_rol === R.SUPERADMIN,

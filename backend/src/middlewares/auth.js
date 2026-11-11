@@ -7,6 +7,18 @@ const { ROLES } = require('../utils/roles');
 
 const MENSAJE_SUSPENDIDA = 'El acceso de tu institución está suspendido. Comunicate con ControlTech para reactivarlo.';
 
+// Error de institucion suspendida. Si fue por falta de pago, el mensaje lo dice y nombra a
+// quien contactar (PAGO_CONTACTO); el login agrega ademas los datos para pagar.
+function errorSuspendida(motivo, extra = {}) {
+  if (motivo === 'Falta de pago') {
+    const contacto = process.env.PAGO_CONTACTO;
+    return new HttpError(403,
+      `El acceso está suspendido por un pago pendiente. Comunicate con ${contacto || 'ControlTech'} para regularizarlo; tus datos se conservan.`,
+      { codigo: 'INSTITUCION_SUSPENDIDA', motivo, ...extra });
+  }
+  return new HttpError(403, MENSAJE_SUSPENDIDA, { codigo: 'INSTITUCION_SUSPENDIDA', motivo: motivo || 'Manual' });
+}
+
 // Sin la migracion 003 el codigo no puede aislar los datos de cada colegio: mejor no responder.
 async function exigirEsquemaMulti() {
   await asegurarEsquemaUnaVez();
@@ -30,7 +42,7 @@ async function autenticar(req, _res, next) {
     await exigirEsquemaMulti();
     const rows = await query(
       `SELECT u.id_usuario, u.nombre, u.apellido, u.email, u.contrasena, r.nombre_rol, ${colBloqueado()} AS bloqueado,
-              u.id_institucion, i.estado AS estado_institucion
+              u.id_institucion, i.estado AS estado_institucion, ${esquema.pagos ? 'i.motivo_suspension' : 'NULL'} AS motivo_suspension
          FROM usuarios u
          JOIN roles r ON r.id_rol = u.id_rol
          LEFT JOIN instituciones i ON i.id_institucion = u.id_institucion
@@ -44,7 +56,7 @@ async function autenticar(req, _res, next) {
     if (payload.pv !== huellaContrasena(u.contrasena)) {
       throw new HttpError(401, 'Tu contraseña fue cambiada. Iniciá sesión con la nueva contraseña.', { codigo: 'CONTRASENA_CAMBIADA' });
     }
-    if (u.estado_institucion === 'Suspendida') throw new HttpError(403, MENSAJE_SUSPENDIDA, { codigo: 'INSTITUCION_SUSPENDIDA' });
+    if (u.estado_institucion === 'Suspendida') throw errorSuspendida(u.motivo_suspension);
     req.user = {
       id: u.id_usuario, nombre: u.nombre, apellido: u.apellido, email: u.email, rol: u.nombre_rol,
       idInstitucion: u.id_institucion ?? null,
@@ -73,4 +85,4 @@ const permitirRoles = (...roles) => (req, res, next) => {
   next();
 };
 
-module.exports = { autenticar, requiereInstitucion, permitirRoles, exigirEsquemaMulti, MENSAJE_SUSPENDIDA };
+module.exports = { autenticar, requiereInstitucion, permitirRoles, exigirEsquemaMulti, errorSuspendida, MENSAJE_SUSPENDIDA };
