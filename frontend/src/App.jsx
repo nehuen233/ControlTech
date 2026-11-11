@@ -7,6 +7,9 @@ import Equipos from './pages/Equipos.jsx'
 import Mantenimientos from './pages/Mantenimientos.jsx'
 import Usuarios from './pages/Usuarios.jsx'
 import Instituciones from './pages/Instituciones.jsx'
+import Pagos from './pages/Pagos.jsx'
+import MiPlan from './pages/MiPlan.jsx'
+import AvisoPago from './components/AvisoPago.jsx'
 import PrimerosPasos from './pages/PrimerosPasos/index.jsx'
 import AvisoProgreso from './components/AvisoProgreso.jsx'
 import { RUTA as RUTA_PRIMEROS_PASOS, dejadoParaDespues } from './pages/PrimerosPasos/progreso.js'
@@ -21,10 +24,12 @@ const SECCIONES = [
   { id: 'equipos', titulo: 'Equipos', componente: Equipos },
   { id: 'mantenimientos', titulo: 'Mantenimientos', componente: Mantenimientos },
   { id: 'usuarios', titulo: 'Usuarios', componente: Usuarios, soloAdmin: true },
+  { id: 'mi-plan', titulo: 'Mi plan', componente: MiPlan, soloAdmin: true },
 ]
 // El SUPERADMIN administra la plataforma: solo ve las instituciones, no los datos de un colegio.
 const SECCIONES_PLATAFORMA = [
   { id: 'instituciones', titulo: 'Instituciones', componente: Instituciones },
+  { id: 'pagos', titulo: 'Pagos', componente: Pagos },
 ]
 
 const leerHash = () => window.location.hash.replace(/^#\/?/, '') || 'inicio'
@@ -87,6 +92,7 @@ export default function App() {
           <Campana />
         </header>
         <main>
+          {esAdmin && actual.id !== 'mi-plan' && <AvisoPago key={`aviso-${actual.id}`} />}
           {falteConfigurar && <AvisoProgreso />}
           <Pagina key={actual.id} />
         </main>

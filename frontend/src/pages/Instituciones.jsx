@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api.js'
 import { Alerta, Cargando, Modal, fecha } from '../components/ui.jsx'
+import { PLANES, etiquetaPlan, pesos } from './pagos/formato.js'
 
 // Seccion del SUPERADMIN: instituciones de la plataforma (alta con su primer administrador
 // y cambio de estado). No muestra datos internos de ningun colegio, solo totales.
@@ -51,6 +52,7 @@ export default function Instituciones() {
                   <td className="chico">{fecha(i.fecha_alta)}</td>
                   <td className="acciones-fila">
                     <button type="button" className="btn-link" onClick={() => setModal({ tipo: 'estado', institucion: i })}>Cambiar estado</button>
+                    <button type="button" className="btn-link" onClick={() => setModal({ tipo: 'plan', institucion: i })}>Plan y cobro</button>
                   </td>
                 </tr>
               ))}
@@ -60,6 +62,7 @@ export default function Instituciones() {
       )}
       {modal?.tipo === 'nueva' && <NuevaInstitucion onClose={() => setModal(null)} onListo={listo} />}
       {modal?.tipo === 'estado' && <CambiarEstado institucion={modal.institucion} onClose={() => setModal(null)} onListo={listo} />}
+      {modal?.tipo === 'plan' && <PlanCobro institucion={modal.institucion} onClose={() => setModal(null)} onListo={listo} />}
     </section>
   )
 }
@@ -137,13 +140,13 @@ function CambiarEstado({ institucion: i, onClose, onListo }) {
     e.preventDefault()
     setEnviando(true)
     try {
-      await api(`/plataforma/instituciones/${i.id_institucion}/estado`, {
+      const r = await api(`/plataforma/instituciones/${i.id_institucion}/estado`, {
         method: 'PATCH',
         body: { estado, ...(estado === 'Prueba' ? { fecha_fin_prueba: fin || null } : {}) },
       })
       onListo(estado === 'Suspendida'
         ? `"${i.nombre}" suspendida: sus usuarios ya no pueden ingresar y las sesiones abiertas se cerraron.`
-        : `"${i.nombre}" ahora está en estado ${estado}.`)
+        : `"${i.nombre}" ahora está en estado ${estado}.${r.aviso ? ` Atención: ${r.aviso}` : ''}`)
     } catch (err) {
       setError(err.message)
       setEnviando(false)
@@ -169,6 +172,70 @@ function CambiarEstado({ institucion: i, onClose, onListo }) {
         <div className="form-acciones">
           <button type="button" className="btn btn-secundario" onClick={onClose}>Cancelar</button>
           <button className={`btn ${estado === 'Suspendida' ? 'btn-peligro' : 'btn-primario'}`} disabled={enviando || (estado === i.estado && estado !== 'Prueba')}>{enviando ? 'Guardando…' : 'Guardar'}</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// Plan y condiciones de cobro. Cambiar el abono no modifica los pagos ya generados; con la
+// institución activa, la cuota del mes se genera al guardar.
+function PlanCobro({ institucion: i, onClose, onListo }) {
+  const [f, setF] = useState({
+    plan: i.plan || '', abono_mensual: i.abono_mensual == null ? '' : String(i.abono_mensual),
+    dia_vencimiento: String(i.dia_vencimiento ?? 10), dias_gracia: String(i.dias_gracia ?? 5),
+  })
+  const [error, setError] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const set = (k) => (e) => setF((v) => ({ ...v, [k]: e.target.value }))
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setError('')
+    const dia = Number(f.dia_vencimiento)
+    const gracia = Number(f.dias_gracia)
+    if (!Number.isInteger(dia) || dia < 1 || dia > 28) return setError('El día de vencimiento va de 1 a 28.')
+    if (!Number.isInteger(gracia) || gracia < 0 || gracia > 60) return setError('Los días de gracia van de 0 a 60.')
+    if (f.abono_mensual !== '' && !(Number(f.abono_mensual) > 0)) return setError('El abono debe ser mayor a 0, o dejalo vacío.')
+    setEnviando(true)
+    try {
+      const r = await api(`/plataforma/instituciones/${i.id_institucion}/plan`, {
+        method: 'PUT',
+        body: { plan: f.plan || null, abono_mensual: f.abono_mensual === '' ? null : Number(f.abono_mensual), dia_vencimiento: dia, dias_gracia: gracia },
+      })
+      onListo(`"${i.nombre}": plan ${etiquetaPlan(r.plan)}${r.abono_mensual ? `, ${pesos(r.abono_mensual)} por mes` : ', sin abono'}.${r.proximo_vencimiento ? ` Próximo vencimiento: ${fecha(r.proximo_vencimiento)}.` : ''}`)
+    } catch (err) {
+      setError(err.message)
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <Modal titulo={`Plan y cobro de ${i.nombre}`} onClose={onClose} ancho="560px">
+      <form className="form" onSubmit={submit} noValidate>
+        <div aria-live="assertive"><Alerta>{error}</Alerta></div>
+        <div className="form-fila">
+          <label>Plan
+            <select value={f.plan} onChange={set('plan')}>
+              <option value="">Sin plan</option>
+              {PLANES.map((p) => <option key={p.id} value={p.id}>{p.etiqueta}</option>)}
+            </select>
+          </label>
+          <label>Abono mensual (ARS)<input type="number" inputMode="decimal" min="0" step="0.01" value={f.abono_mensual} onChange={set('abono_mensual')} placeholder="Sin abono" /></label>
+        </div>
+        <div className="form-fila">
+          <label>Día de vencimiento<input type="number" min="1" max="28" value={f.dia_vencimiento} onChange={set('dia_vencimiento')} aria-describedby="ayuda-dia" />
+            <span id="ayuda-dia" className="ayuda">De 1 a 28, todos los meses.</span></label>
+          <label>Días de gracia<input type="number" min="0" max="60" value={f.dias_gracia} onChange={set('dias_gracia')} aria-describedby="ayuda-gracia" />
+            <span id="ayuda-gracia" className="ayuda">Después del vencimiento, antes de suspender.</span></label>
+        </div>
+        <p className="texto-suave chico">
+          {i.estado === 'Prueba' ? 'Mientras esté en prueba no se generan cuotas. ' : ''}
+          Cambiar el abono no modifica los pagos ya generados. Si la institución está activa, la cuota de este mes se genera al guardar.
+        </p>
+        <div className="form-acciones">
+          <button type="button" className="btn btn-secundario" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primario" disabled={enviando}>{enviando ? 'Guardando…' : 'Guardar plan'}</button>
         </div>
       </form>
     </Modal>

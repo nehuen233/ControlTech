@@ -7,6 +7,8 @@ const TONOS = {
   Baja: 'neutral', Media: 'info', Alta: 'warn', Critica: 'danger',
   Activa: 'warn', Resuelta: 'ok',
   'Necesita reparación': 'warn', 'Con problemas': 'warn',
+  // Pagos y estado de cuenta
+  Pagado: 'ok', Vencido: 'danger', Anulado: 'neutral', 'Al día': 'ok', Suspendida: 'danger', 'En prueba': 'info', 'Sin plan': 'neutral',
 }
 
 export const ETIQUETA_TIPO = { Actualizacion: 'Actualización', Critica: 'Crítica' }

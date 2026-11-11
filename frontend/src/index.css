@@ -286,3 +286,30 @@ tr:last-child td { border-bottom: 0; }
 /* Multi-institución: nombre del colegio bajo la marca */
 .marca-textos { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 .marca-institucion { font-size: .75rem; font-weight: 500; color: var(--sidebar-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+
+/* Pagos (SUPERADMIN), Mi plan y avisos de pago */
+.acciones-linea { display: flex; gap: .6rem; flex-wrap: wrap; }
+.tarjeta-dato.estatica { cursor: default; }
+.tarjeta-dato.estatica:hover { border-color: var(--border); }
+.tarjetas-pagos strong { font-size: 1.35rem; }
+.aviso-pago { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; padding: .75rem 1rem; border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); border: 1px solid transparent; font-size: .92rem; }
+.aviso-pago.es-urgente { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+.aviso-pago .btn { flex-shrink: 0; }
+.mi-plan { display: flex; flex-direction: column; gap: 1rem; }
+.mi-plan .panel { gap: .9rem; }
+.mi-plan-cabecera { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.mi-plan-cabecera p { margin: .25rem 0 0; }
+.mi-plan .alerta { margin: 0; }
+.datos-pago { display: flex; flex-direction: column; gap: .9rem; align-items: flex-start; }
+.datos-pago dl { margin: 0; display: grid; gap: .6rem; width: 100%; }
+.datos-pago dt { font-size: .8rem; color: var(--muted); }
+.datos-pago dd { margin: .15rem 0 0; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.dato-copiable { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1rem; font-weight: 600; word-break: break-all; }
+.btn-chico { padding: .3rem .7rem; font-size: .8rem; min-height: 32px; }
+.alerta.suspension { flex-direction: column; align-items: stretch; gap: .75rem; }
+.suspension-pago { display: flex; flex-direction: column; gap: .6rem; color: var(--text); background: var(--surface); border-radius: 8px; padding: .75rem; }
+.suspension-pago p { margin: 0; }
+.dato-titular { font-weight: 600; }
+@media (prefers-color-scheme: dark) {
+  .datos-pago .btn-primario { color: #0f1522; }
+}
