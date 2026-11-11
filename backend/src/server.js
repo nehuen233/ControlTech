@@ -22,6 +22,7 @@ const { explicarErrorMySQL } = require('./config/diagnostico');
 const { asegurarRolesAsignables } = require('./controllers/usuariosController');
 const { asegurarEsquemaUnaVez } = require('./config/esquema');
 const { iniciarVerificacionPeriodica } = require('./controllers/alertasController');
+const { iniciarCobroPeriodico } = require('./utils/cobros');
 
 const PORT = Number(process.env.PORT || 4000);
 
@@ -34,6 +35,11 @@ pool.query('SELECT 1')
     if (esq.multi) console.log('Esquema multi-institución disponible.');
     if (esq.bloqueo) console.log('Bloqueo de usuarios disponible.');
     if (esq.solicitudes) console.log('Recuperación de contraseña disponible.');
+    if (esq.pagos) {
+      console.log('Módulo de pagos disponible.');
+      // Cuotas, vencimientos y suspensión por falta de pago (PAGOS_AUTOMATICOS=no lo desactiva).
+      if (process.env.PAGOS_AUTOMATICOS !== 'no') iniciarCobroPeriodico();
+    }
     const creados = await asegurarRolesAsignables().catch((err) => {
       console.warn(`No se pudieron verificar los roles asignables: ${err.message}`);
       return 0;

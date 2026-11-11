@@ -10,6 +10,8 @@ const { ROLES } = require('../utils/roles');
 const { registrarAccion } = require('../utils/historial');
 const { cerrarSesionesInstitucion } = require('../utils/eventos');
 const { slugDisponible } = require('../config/migracion003');
+const { estado: esquema } = require('../config/esquema');
+const cobros = require('../utils/cobros');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ESTADOS = ['Prueba', 'Activa', 'Suspendida'];
@@ -92,6 +94,7 @@ async function marcarConfigurada(req, res) {
 async function listarInstituciones(_req, res) {
   const rows = await query(
     `SELECT ${CAMPOS_PUBLICOS},
+            ${esquema.pagos ? 'i.plan, i.abono_mensual, i.dia_vencimiento, i.dias_gracia, i.motivo_suspension,' : ''}
             (SELECT COUNT(*) FROM usuarios u WHERE u.id_institucion = i.id_institucion) AS usuarios,
             (SELECT COUNT(*) FROM laboratorios l WHERE l.id_institucion = i.id_institucion) AS laboratorios,
             (SELECT COUNT(*) FROM equipos e WHERE e.id_institucion = i.id_institucion) AS equipos,
@@ -102,6 +105,7 @@ async function listarInstituciones(_req, res) {
   );
   res.json(rows.map((i) => ({
     ...formatear(i), usuarios: Number(i.usuarios), laboratorios: Number(i.laboratorios), equipos: Number(i.equipos),
+    ...(i.abono_mensual !== undefined ? { abono_mensual: i.abono_mensual === null ? null : Number(i.abono_mensual) } : {}),
   })));
 }
 
@@ -162,6 +166,8 @@ async function cambiarEstado(req, res) {
   if (fin !== undefined && fin !== null && !fechaValida(fin)) throw new HttpError(400, 'La fecha de fin de la prueba no es válida (AAAA-MM-DD).');
   const actual = await obtener(id);
   const cambios = { estado, ...(fin !== undefined ? { fecha_fin_prueba: fin } : {}) };
+  // Una suspension hecha por la plataforma es "Manual": el cobro automatico no la levanta.
+  if (esquema.pagos) cambios.motivo_suspension = estado === 'Suspendida' ? 'Manual' : null;
   await withTransaction(async (conn) => {
     await conn.query('UPDATE instituciones SET ? WHERE id_institucion = ?', [cambios, id]);
     await registrarAccion(conn, {
@@ -172,7 +178,15 @@ async function cambiarEstado(req, res) {
   // Al suspender se cortan en el momento las ventanas abiertas de esa institucion; las
   // peticiones siguientes ya responden 403 porque autenticar lee el estado de la base.
   if (estado === 'Suspendida') cerrarSesionesInstitucion(id, 'El acceso de tu institución fue suspendido. Comunicate con ControlTech para reactivarlo.');
-  res.json(await obtener(id));
+  // Activada con pagos vencidos fuera de la gracia: el cobro automatico la vuelve a suspender.
+  let aviso = null;
+  if (esquema.pagos && estado === 'Activa') {
+    const [c] = await cobros.estadoDeCuenta({ idInstitucion: id });
+    if (c?.fecha_suspension && c.fecha_suspension <= cobros.hoyAR()) {
+      aviso = `Tiene pagos vencidos fuera de los días de gracia: la próxima verificación la va a suspender otra vez. Registrá el pago o corregí la fecha de vencimiento en Pagos.`;
+    }
+  }
+  res.json({ ...(await obtener(id)), aviso });
 }
 
 module.exports = { ver, actualizar, marcarConfigurada, listarInstituciones, crearInstitucion, cambiarEstado };

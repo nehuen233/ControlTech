@@ -45,6 +45,43 @@ laboratorios, equipos, software, licencias, mantenimientos, alertas e historial.
    y carga laboratorios, equipos y usuarios.
 5. Con **Cambiar estado** la pasás a *Activa* o la suspendés.
 
+## Pagos del abono (módulo de cobro)
+
+Cada colegio paga un abono mensual. El SUPERADMIN registra los pagos a mano (transferencia,
+Mercado Pago, efectivo) y el sistema suspende solo a los colegios que no pagan. Todavía no hay
+cobro automático con una pasarela: el campo `medio` y la `referencia` quedan listos para eso.
+
+**Cómo funciona el cobro**
+- En **Instituciones → Plan y cobro** se cargan el plan, el abono mensual, el día de
+  vencimiento (1 a 28) y los días de gracia. Mientras el colegio está en *Prueba* no se
+  generan cuotas.
+- El backend revisa los pagos al iniciar y cada `PAGOS_INTERVALO_MIN` minutos (botón
+  **Verificar ahora** en Pagos):
+  1. Genera la cuota del mes para los colegios activos (o suspendidos por falta de pago) con
+     abono. Si la cuota se genera después de su día de vencimiento, vence ese mismo día.
+  2. Pasa a *Vencido* lo que no se pagó a tiempo.
+  3. Suspende al colegio con un pago vencido hace más de sus días de gracia, cierra sus
+     sesiones abiertas y lo anota en el historial.
+  4. Reactiva al colegio suspendido por falta de pago cuando ya no tiene pagos vencidos. Una
+     suspensión hecha a mano (Cambiar estado) nunca se levanta sola.
+- "Hoy" es la fecha de Argentina. Correr la verificación dos veces no cambia nada.
+
+**Registrar un pago**
+1. Entrá como SUPERADMIN → **Pagos** → **Registrar pago** (o el botón de la fila del colegio).
+2. Elegí el colegio: se proponen el período y el monto de la cuota abierta más vieja.
+3. Completá fecha, medio, referencia u operación y, si la tenés, el número de factura.
+4. Al registrarlo, si el colegio estaba suspendido por falta de pago y ya no debe nada, vuelve a
+   estar activo en el momento.
+- En **Historial** se corrige un pago (por ejemplo, para dar más plazo se cambia su fecha de
+  vencimiento) o se anula escribiendo el motivo.
+
+**Lo que ve el colegio**
+- El administrador tiene la sección **Mi plan** (estado de cuenta, cómo pagar con alias, CBU y
+  link, últimos pagos) y una franja de aviso cuando el abono vence o ya venció, con la fecha
+  exacta de suspensión. Los demás roles no ven nada de pagos.
+- Si el colegio está suspendido por falta de pago, el inicio de sesión lo explica y muestra la
+  deuda y cómo pagar (solo con email y contraseña correctos).
+
 ## 1. Base de datos
 
 ### Instalación nueva
@@ -82,7 +119,7 @@ código y reiniciar el backend: la **migración 003** se aplica sola al iniciar 
 
 Es idempotente (se puede cortar y volver a correr) y no borra datos. Si el usuario de MySQL del
 `.env` no tiene permisos `ALTER`, `CREATE`, `INDEX` y `REFERENCES`, el backend lo avisa al iniciar:
-ejecutá entonces `backend/sql/migraciones/003_multi_institucion.sql` con `root` y reiniciá.
+ejecutá entonces `backend/sql/migraciones/003_multi_institucion.sql` con `root` y reiniciá. Lo mismo vale para la **migración 004** (módulo de pagos: plan y abono de cada colegio y tabla `pagos`): si el backend avisa que falta, ejecutá `backend/sql/migraciones/004_pagos.sql`.
 Antes de migrar una base en uso, hacé un respaldo (`mysqldump controltecchh > respaldo.sql`).
 `npm run db:check` muestra después las instituciones con sus totales.
 
@@ -103,6 +140,9 @@ Variables de `backend/.env` relacionadas con las instituciones:
 | `INSTITUCION_INICIAL_NOMBRE` | Nombre de la institución 1 al migrar una base de un solo colegio. |
 | `DEMO_ADMIN_EMAIL`, `DEMO_ADMIN_PASSWORD`, `DEMO_USUARIOS_PASSWORD` | Opcionales, para `npm run db:demo`. |
 | `TEST_MYSQL_ADMIN_USER`, `TEST_MYSQL_ADMIN_PASSWORD` | Opcionales: usuario que puede crear bases `ct_prueba_*` para la prueba de migración. |
+| `PAGOS_INTERVALO_MIN`, `PAGOS_AUTOMATICOS` | Cada cuántos minutos se revisan los pagos (60 por defecto); `PAGOS_AUTOMATICOS=no` desactiva la revisión automática. |
+| `PAGO_ALIAS`, `PAGO_CBU`, `PAGO_TITULAR`, `PAGO_LINK` | Datos para pagar que ven los administradores en Mi plan y en el login si están suspendidos. |
+| `PAGO_CONTACTO` | Email o WhatsApp para pagos; aparece en el mensaje de suspensión por falta de pago. |
 
 `GET http://localhost:4000/api/health` responde `{"ok":true,"db":"conectada"}` si la conexión con MySQL funciona.
 
@@ -158,6 +198,7 @@ Son pruebas de integración contra la API y MySQL reales:
 - `api.test.js`: cada corrida crea **su propia institución** (por la API del SUPERADMIN), le carga
   los datos de demostración y prueba todas las funciones; al final verifica que ninguna otra
   institución cambió.
+- `pagos.test.js`: cuotas sin duplicar, vencimiento, suspensión al pasar la gracia, reactivación al registrar el pago, suspensión manual que no se levanta sola, prueba sin cuotas y aislamiento (los colegios solo leen sus pagos).
 - `primeros-pasos.test.js`: alta de computadoras en lote (errores por fila, capacidad, aislamiento) y contraseña inicial generada.
 - `instituciones.test.js`: aislamiento entre dos instituciones A y B (listar, ver, crear, modificar
   y borrar), unicidades por institución, eventos en tiempo real, suspensión y SUPERADMIN.
@@ -293,6 +334,11 @@ Todas las rutas de un colegio responden `403` al SUPERADMIN, y `403` con `codigo
 | PATCH | `/api/institucion/configurada` | administrador |
 | GET / POST | `/api/plataforma/instituciones` (alta con su primer administrador) | SUPERADMIN |
 | PATCH | `/api/plataforma/instituciones/:id/estado` | SUPERADMIN |
+| PUT | `/api/plataforma/instituciones/:id/plan` (plan, abono, día de vencimiento, días de gracia) | SUPERADMIN |
+| GET | `/api/plataforma/pagos?estado=&institucion=&desde=&hasta=`, `/api/plataforma/pagos/resumen` | SUPERADMIN |
+| POST | `/api/plataforma/pagos` (registrar), `/api/plataforma/pagos/procesar` (verificar ahora) | SUPERADMIN |
+| PATCH | `/api/plataforma/pagos/:id` (corregir o anular con nota) | SUPERADMIN |
+| GET | `/api/institucion/plan` | administrador del colegio |
 | GET | `/api/roles/asignables` | administrador |
 | GET / POST | `/api/usuarios` (`generar: true` crea la contraseña inicial y la devuelve una vez) | administrador |
 | PATCH | `/api/usuarios/:id/rol` | administrador |

@@ -10,6 +10,7 @@ const software = require('../controllers/softwareController');
 const alertas = require('../controllers/alertasController');
 const mant = require('../controllers/mantenimientosController');
 const inst = require('../controllers/institucionController');
+const pagos = require('../controllers/pagosController');
 const { pool } = require('../config/db');
 const { explicarErrorMySQL } = require('../config/diagnostico');
 
@@ -38,11 +39,19 @@ const soloSuperadmin = [autenticarBase, permitirRoles(ROLES.SUPERADMIN)];
 r.get('/plataforma/instituciones', soloSuperadmin, h(inst.listarInstituciones));
 r.post('/plataforma/instituciones', soloSuperadmin, h(inst.crearInstitucion));
 r.patch('/plataforma/instituciones/:id/estado', soloSuperadmin, h(inst.cambiarEstado));
+r.put('/plataforma/instituciones/:id/plan', soloSuperadmin, h(pagos.actualizarPlan));
+r.get('/plataforma/pagos', soloSuperadmin, h(pagos.listar));
+r.get('/plataforma/pagos/resumen', soloSuperadmin, h(pagos.resumen));
+r.post('/plataforma/pagos', soloSuperadmin, h(pagos.registrar));
+r.post('/plataforma/pagos/procesar', soloSuperadmin, h(pagos.procesarAhora));
+r.patch('/plataforma/pagos/:id', soloSuperadmin, h(pagos.actualizar));
 
 // Institucion del usuario: la ven todos; la edita el administrador
 r.get('/institucion', autenticar, h(inst.ver));
 r.put('/institucion', autenticar, permitirRoles(ROLES.ADMIN), h(inst.actualizar));
 r.patch('/institucion/configurada', autenticar, permitirRoles(ROLES.ADMIN), h(inst.marcarConfigurada));
+// Plan y pagos del colegio: solo lectura, y solo el administrador.
+r.get('/institucion/plan', autenticar, permitirRoles(ROLES.ADMIN), h(pagos.miPlan));
 
 // Usuarios y roles: solo el administrador
 const soloAdmin = [autenticar, permitirRoles(ROLES.ADMIN)];

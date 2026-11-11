@@ -33,7 +33,13 @@ CREATE TABLE instituciones (
  estado           ENUM('Prueba','Activa','Suspendida') NOT NULL DEFAULT 'Prueba',
  fecha_fin_prueba DATE NULL,
  configurada      TINYINT(1) NOT NULL DEFAULT 0,
- fecha_alta       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+ fecha_alta       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ -- Cobro del abono (migracion 004)
+ plan              ENUM('Basico','Estandar','Institucional') NULL,
+ abono_mensual     DECIMAL(12,2) NULL,
+ dia_vencimiento   TINYINT NOT NULL DEFAULT 10,
+ dias_gracia       TINYINT NOT NULL DEFAULT 5,
+ motivo_suspension ENUM('Falta de pago','Manual') NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE laboratorios (
@@ -200,6 +206,28 @@ CREATE TABLE solicitudes_contrasena (
  id_atendida_por INT NULL,
  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
  FOREIGN KEY (id_atendida_por) REFERENCES usuarios(id_usuario) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- Pagos del abono de cada institucion (tabla de la plataforma: el colegio solo la lee)
+CREATE TABLE pagos (
+  id_pago            INT AUTO_INCREMENT PRIMARY KEY,
+  id_institucion     INT NOT NULL,
+  periodo            CHAR(7) NOT NULL,
+  concepto           ENUM('Abono','Implementacion','Anual','Otro') NOT NULL DEFAULT 'Abono',
+  monto              DECIMAL(12,2) NOT NULL,
+  fecha_vencimiento  DATE NOT NULL,
+  fecha_pago         DATE NULL,
+  estado             ENUM('Pendiente','Pagado','Vencido','Anulado') NOT NULL DEFAULT 'Pendiente',
+  medio              ENUM('Transferencia','Mercado Pago','Efectivo','Otro') NULL,
+  referencia         VARCHAR(150) NULL,
+  nro_factura        VARCHAR(50) NULL,
+  notas              VARCHAR(300) NULL,
+  id_registrado_por  INT NULL,
+  fecha_registro     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_periodo (id_institucion, periodo, concepto),
+  KEY ix_pagos_estado (estado, fecha_vencimiento),
+  CONSTRAINT fk_pagos_institucion FOREIGN KEY (id_institucion) REFERENCES instituciones(id_institucion),
+  CONSTRAINT fk_pagos_registrado_por FOREIGN KEY (id_registrado_por) REFERENCES usuarios(id_usuario) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 INSERT INTO roles (nombre_rol) VALUES

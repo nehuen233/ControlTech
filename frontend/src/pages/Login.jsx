@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../AuthContext.jsx'
 import { Alerta } from '../components/ui.jsx'
+import DatosDePago from '../components/DatosDePago.jsx'
 
 export default function Login() {
   const [vista, setVista] = useState('ingresar')
@@ -39,7 +40,7 @@ function Ingresar({ email, setEmail, onOlvido }) {
     try {
       await login(email, contrasena)
     } catch (err) {
-      if (err.detalles?.codigo === 'INSTITUCION_SUSPENDIDA') setSuspendida(err.message)
+      if (err.detalles?.codigo === 'INSTITUCION_SUSPENDIDA') setSuspendida({ mensaje: err.message, ...err.detalles })
       else setError(err.message)
     } finally {
       setEnviando(false)
@@ -52,8 +53,17 @@ function Ingresar({ email, setEmail, onOlvido }) {
       <p className="texto-suave">Gestión de laboratorios, equipos y mantenimientos</p>
       <Alerta>{error}</Alerta>
       {suspendida && (
-        <div className="alerta alerta-error" role="alert">
-          <span><strong>Institución suspendida.</strong> {suspendida}</span>
+        <div className="alerta alerta-error suspension" role="alert">
+          <span><strong>{suspendida.motivo === 'Falta de pago' ? 'Acceso suspendido por falta de pago.' : 'Institución suspendida.'}</strong> {suspendida.mensaje}</span>
+          {suspendida.motivo === 'Falta de pago' && (
+            <div className="suspension-pago">
+              {suspendida.deuda > 0 && <p>Deuda vencida: <strong>{Number(suspendida.deuda).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}</strong></p>}
+              {suspendida.datos_pago && (suspendida.datos_pago.alias || suspendida.datos_pago.cbu || suspendida.datos_pago.link)
+                ? <DatosDePago datos={suspendida.datos_pago} />
+                : null}
+              <p className="chico">Cuando ControlTech registre el pago, el acceso se habilita en el momento.</p>
+            </div>
+          )}
         </div>
       )}
       {!error && !suspendida && aviso && <div className="alerta alerta-aviso" role="status">{aviso}</div>}
