@@ -4,12 +4,14 @@
 //   002 - tabla solicitudes_contrasena: pedidos de "¿Olvidaste tu contraseña?".
 //   003 - multi-institucion (config/migracion003.js): instituciones, id_institucion en las
 //         tablas, unicidades por institucion, rol SUPERADMIN.
+//   004 - pagos (config/migracion004.js): plan y abono de cada institucion, tabla pagos.
 // Si el usuario de MySQL no tiene permiso (ALTER / CREATE), el resto del sistema sigue
 // funcionando sin esa funcion y se indica el archivo de backend/sql/migraciones a ejecutar.
 const { query } = require('./db');
 const migracion003 = require('./migracion003');
+const migracion004 = require('./migracion004');
 
-const estado = { bloqueo: false, solicitudes: false, multi: false, verificado: false, error: null, errores: {}, avisos: [] };
+const estado = { bloqueo: false, solicitudes: false, multi: false, pagos: false, verificado: false, error: null, errores: {}, avisos: [] };
 
 const SQL_BLOQUEO = 'ALTER TABLE usuarios ADD COLUMN bloqueado TINYINT(1) NOT NULL DEFAULT 0';
 const SQL_SOLICITUDES = `CREATE TABLE IF NOT EXISTS solicitudes_contrasena (
@@ -84,6 +86,23 @@ async function asegurarEsquema() {
     r.errores.push(estado.errores.multi);
   } else {
     delete estado.errores.multi;
+  }
+  // 004 - pagos (requiere la 003: referencia a instituciones)
+  if (estado.multi) {
+    try {
+      const m = await migracion004.migrar();
+      r.agregadas.push(...m.hechos);
+    } catch (err) {
+      r.errores.push(`Migración 004: ${err.code || err.message}`);
+    }
+  }
+  estado.pagos = await migracion004.aplicada().catch(() => false);
+  if (!estado.pagos) {
+    estado.errores.pagos = 'La base todavía no tiene el módulo de pagos. '
+      + 'Ejecutá backend/sql/migraciones/004_pagos.sql con un usuario de MySQL con permisos ALTER, CREATE y REFERENCES (por ejemplo root) y reiniciá el backend.';
+    r.errores.push(estado.errores.pagos);
+  } else {
+    delete estado.errores.pagos;
   }
   estado.error = estado.errores.bloqueo || null; // compatibilidad: mensaje del bloqueo
   estado.verificado = true;
