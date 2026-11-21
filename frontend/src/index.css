@@ -325,3 +325,8 @@ tr:last-child td { border-bottom: 0; }
 .campo-error { color: var(--danger); font-size: .84rem; font-weight: 600; }
 label.con-error input { border-color: var(--danger); }
 
+/* Fondo detrás del menú del celular: tocarlo cierra el menú */
+.menu-fondo { display: none; }
+@media (max-width: 860px) {
+  .menu-fondo { display: block; position: fixed; inset: 0; z-index: 39; background: rgba(10, 16, 28, .45); }
+}
