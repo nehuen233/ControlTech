@@ -42,8 +42,13 @@ async function login(req, res) {
     [email],
   );
   const u = rows[0];
-  if (!u || !(await verificarContrasena(contrasena, u.contrasena))) {
-    throw new HttpError(401, 'Email o contraseña incorrectos.');
+  // Se indica en qué campo está el error: primero se valida el email y, solo si existe una
+  // cuenta con ese email, se compara la contraseña.
+  if (!u) {
+    throw new HttpError(401, 'No hay ninguna cuenta con ese email. Revisá cómo lo escribiste.', { codigo: 'EMAIL_INEXISTENTE', campo: 'email' });
+  }
+  if (!(await verificarContrasena(contrasena, u.contrasena))) {
+    throw new HttpError(401, 'La contraseña es incorrecta.', { codigo: 'CONTRASENA_INCORRECTA', campo: 'contrasena' });
   }
   // Se informa el bloqueo solo con la contraseña correcta (no revela cuentas a terceros).
   if (Number(u.bloqueado)) {

@@ -170,6 +170,20 @@ test('el administrador existente inicia sesión y conserva sus permisos', async 
   assert.equal(n, 1, 'la institución tiene un único administrador');
 });
 
+test('login: el error indica si falló el email o la contraseña', async () => {
+  const sinCuenta = await call('/auth/login', { method: 'POST', body: { email: `nadie.${SUFIJO}@test.controltech`, contrasena: ADMIN_CLAVE } });
+  assert.equal(sinCuenta.status, 401);
+  assert.equal(sinCuenta.data.detalles.campo, 'email', 'email inexistente: error en el email aunque la contraseña sea de otra cuenta');
+  assert.equal(sinCuenta.data.detalles.codigo, 'EMAIL_INEXISTENTE');
+  const malaClave = await call('/auth/login', { method: 'POST', body: { email: ADMIN_EMAIL.toUpperCase(), contrasena: 'no-es-esta' } });
+  assert.equal(malaClave.status, 401);
+  assert.equal(malaClave.data.detalles.campo, 'contrasena');
+  assert.equal(malaClave.data.detalles.codigo, 'CONTRASENA_INCORRECTA');
+  assert.match(malaClave.data.error, /contraseña es incorrecta/);
+  const faltan = await call('/auth/login', { method: 'POST', body: { email: ADMIN_EMAIL } });
+  assert.equal(faltan.status, 400);
+});
+
 test('solo se ofrecen los roles Docente, Docente de laboratorio y Técnico', async () => {
   const r = await call('/roles/asignables', { token: admin.token });
   assert.equal(r.status, 200);
@@ -888,6 +902,7 @@ test('bloquear un usuario: no ingresa y su sesión abierta se cierra en el momen
   assert.match(otraVez.data.error, /Tu cuenta está bloqueada/);
   const malaClave = await call('/auth/login', { method: 'POST', body: { email: u.email, contrasena: 'otra-cosa' } });
   assert.equal(malaClave.status, 401, 'con contraseña incorrecta no se revela el bloqueo');
+  assert.equal(malaClave.data.detalles.campo, 'contrasena');
   const lista = await call('/usuarios', { token: admin.token });
   assert.equal(lista.data.find((x) => x.id_usuario === u.id_usuario).bloqueado, true);
 

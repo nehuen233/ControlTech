@@ -3,6 +3,7 @@ import { api } from '../api.js'
 import { useAuth } from '../AuthContext.jsx'
 import { Alerta } from '../components/ui.jsx'
 import DatosDePago from '../components/DatosDePago.jsx'
+import CampoContrasena from '../components/CampoContrasena.jsx'
 
 export default function Login() {
   const [vista, setVista] = useState('ingresar')
@@ -29,19 +30,27 @@ function Ingresar({ email, setEmail, onOlvido }) {
   const { login, aviso } = useAuth()
   const [contrasena, setContrasena] = useState('')
   const [error, setError] = useState('')
+  // Error de un campo puntual: { campo: 'email' | 'contrasena', mensaje }
+  const [errorCampo, setErrorCampo] = useState(null)
   const [suspendida, setSuspendida] = useState('')
   const [enviando, setEnviando] = useState(false)
 
   const enviar = async (e) => {
     e.preventDefault()
     setError('')
+    setErrorCampo(null)
     setSuspendida('')
     setEnviando(true)
     try {
       await login(email, contrasena)
     } catch (err) {
+      const campo = err.detalles?.campo
       if (err.detalles?.codigo === 'INSTITUCION_SUSPENDIDA') setSuspendida({ mensaje: err.message, ...err.detalles })
-      else setError(err.message)
+      else if (campo === 'email' || campo === 'contrasena') {
+        setErrorCampo({ campo, mensaje: err.message })
+        // El foco va al campo con el error (en la contraseña, todo seleccionado para reescribirla).
+        setTimeout(() => { const el = document.getElementById(`login-${campo}`); el?.focus(); el?.select?.() }, 0)
+      } else setError(err.message)
     } finally {
       setEnviando(false)
     }
@@ -66,14 +75,20 @@ function Ingresar({ email, setEmail, onOlvido }) {
           )}
         </div>
       )}
-      {!error && !suspendida && aviso && <div className="alerta alerta-aviso" role="status">{aviso}</div>}
-      <label>
+      {!error && !errorCampo && !suspendida && aviso && <div className="alerta alerta-aviso" role="status">{aviso}</div>}
+      <label className={errorCampo?.campo === 'email' ? 'con-error' : ''}>
         Email
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
+        <input id="login-email" type="email" value={email} required autoComplete="username"
+          onChange={(e) => { setEmail(e.target.value); if (errorCampo?.campo === 'email') setErrorCampo(null) }}
+          aria-invalid={errorCampo?.campo === 'email'} aria-describedby={errorCampo?.campo === 'email' ? 'login-email-error' : undefined} />
+        {errorCampo?.campo === 'email' && <span id="login-email-error" className="campo-error" role="alert">{errorCampo.mensaje}</span>}
       </label>
-      <label>
+      <label className={errorCampo?.campo === 'contrasena' ? 'con-error' : ''}>
         Contraseña
-        <input type="password" value={contrasena} onChange={(e) => setContrasena(e.target.value)} required autoComplete="current-password" />
+        <CampoContrasena id="login-contrasena" value={contrasena} required autoComplete="current-password"
+          onChange={(e) => { setContrasena(e.target.value); if (errorCampo?.campo === 'contrasena') setErrorCampo(null) }}
+          aria-invalid={errorCampo?.campo === 'contrasena'} aria-describedby={errorCampo?.campo === 'contrasena' ? 'login-contrasena-error' : undefined} />
+        {errorCampo?.campo === 'contrasena' && <span id="login-contrasena-error" className="campo-error" role="alert">{errorCampo.mensaje}</span>}
       </label>
       <button className="btn btn-primario" disabled={enviando}>{enviando ? 'Ingresando…' : 'Ingresar'}</button>
       <button type="button" className="btn-link centro" onClick={onOlvido}>¿Olvidaste tu contraseña?</button>

@@ -313,3 +313,15 @@ tr:last-child td { border-bottom: 0; }
 @media (prefers-color-scheme: dark) {
   .datos-pago .btn-primario { color: #0f1522; }
 }
+
+/* Campo de contraseña con botón para mostrarla */
+.campo-contrasena { position: relative; display: block; }
+.campo-contrasena input { width: 100%; padding-right: 2.9rem; }
+.campo-contrasena-ojo { position: absolute; top: 50%; right: .25rem; transform: translateY(-50%); display: inline-grid; place-items: center; width: 40px; height: 40px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+.campo-contrasena-ojo:hover { color: var(--text); background: var(--surface-2); }
+.campo-contrasena-ojo:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.campo-contrasena-ojo[aria-pressed="true"] { color: var(--primary); }
+/* Error de un campo del login */
+.campo-error { color: var(--danger); font-size: .84rem; font-weight: 600; }
+label.con-error input { border-color: var(--danger); }
+
