@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api.js'
+import CampoContrasena from '../components/CampoContrasena.jsx'
 import { Alerta, Badge, Cargando, Modal, fechaHora } from '../components/ui.jsx'
 import { useAlertas } from '../components/Alertas.jsx'
 
@@ -166,7 +167,7 @@ function FormUsuario({ roles, labs, usuario, onClose, onGuardado }) {
               <label>Apellido<input value={f.apellido} onChange={set('apellido')} maxLength={80} required /></label>
             </div>
             <label>Email<input type="email" value={f.email} onChange={set('email')} maxLength={150} required autoComplete="off" /></label>
-            <label>Contraseña (mínimo 8 caracteres)<input type="password" value={f.contrasena} onChange={set('contrasena')} minLength={8} required autoComplete="new-password" /></label>
+            <label>Contraseña (mínimo 8 caracteres)<CampoContrasena value={f.contrasena} onChange={set('contrasena')} minLength={8} required autoComplete="new-password" /></label>
           </>
         )}
         <fieldset>

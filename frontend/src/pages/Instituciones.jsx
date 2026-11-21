@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api.js'
+import CampoContrasena from '../components/CampoContrasena.jsx'
 import { Alerta, Cargando, Modal, fecha } from '../components/ui.jsx'
 import { PLANES, etiquetaPlan, pesos } from './pagos/formato.js'
 
@@ -119,7 +120,7 @@ function NuevaInstitucion({ onClose, onListo }) {
             <label>Apellido<input value={f.adm_apellido} onChange={set('adm_apellido')} maxLength={80} required /></label>
           </div>
           <label>Email (con este ingresa al sistema)<input type="email" value={f.adm_email} onChange={set('adm_email')} maxLength={150} required autoComplete="off" /></label>
-          <label>Contraseña inicial (mínimo 8 caracteres)<input type="password" value={f.adm_contrasena} onChange={set('adm_contrasena')} minLength={8} required autoComplete="new-password" /></label>
+          <label>Contraseña inicial (mínimo 8 caracteres)<CampoContrasena value={f.adm_contrasena} onChange={set('adm_contrasena')} minLength={8} required autoComplete="new-password" /></label>
         </fieldset>
         <div className="form-acciones">
           <button type="button" className="btn btn-secundario" onClick={onClose}>Cancelar</button>

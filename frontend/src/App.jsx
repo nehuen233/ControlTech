@@ -40,6 +40,14 @@ export default function App() {
   const [ruta, setRuta] = useState(leerHash)
   const [menuAbierto, setMenuAbierto] = useState(false)
 
+  // Con el menú abierto, la tecla Escape lo cierra.
+  useEffect(() => {
+    if (!menuAbierto) return undefined
+    const onKey = (e) => { if (e.key === 'Escape') setMenuAbierto(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuAbierto])
+
   useEffect(() => {
     const onHash = () => { setRuta(leerHash()); setMenuAbierto(false) }
     window.addEventListener('hashchange', onHash)
@@ -61,7 +69,9 @@ export default function App() {
 
   return (
     <div className="layout">
-      <aside className={`sidebar ${menuAbierto ? 'abierta' : ''}`}>
+      {/* En el celular, tocar fuera del menú lo cierra */}
+      {menuAbierto && <div className="menu-fondo" onClick={() => setMenuAbierto(false)} aria-hidden="true" />}
+      <aside id="menu-principal" className={`sidebar ${menuAbierto ? 'abierta' : ''}`}>
         <div className="marca">
           <span className="marca-logo" aria-hidden="true">CT</span>
           <span className="marca-textos">
@@ -71,7 +81,8 @@ export default function App() {
         </div>
         <nav aria-label="Secciones">
           {visibles.map((s) => (
-            <a key={s.id} href={`#/${s.id}`} className={s.id === actual.id ? 'activo' : ''} aria-current={s.id === actual.id ? 'page' : undefined}>
+            <a key={s.id} href={`#/${s.id}`} className={s.id === actual.id ? 'activo' : ''} aria-current={s.id === actual.id ? 'page' : undefined}
+              onClick={() => setMenuAbierto(false)}>
               {s.titulo}
               {s.id === 'usuarios' && solicitudes.length > 0 && (
                 <span className="contador-nav" title="Solicitudes de cambio de contraseña pendientes" aria-label={`${solicitudes.length} solicitudes de cambio de contraseña pendientes`}>{solicitudes.length}</span>
@@ -87,7 +98,8 @@ export default function App() {
       </aside>
       <div className="contenido">
         <header className="topbar">
-          <button type="button" className="btn-menu" onClick={() => setMenuAbierto((v) => !v)} aria-label="Abrir menú">☰</button>
+          <button type="button" className="btn-menu" onClick={() => setMenuAbierto((v) => !v)} aria-label={menuAbierto ? 'Cerrar menú' : 'Abrir menú'}
+            aria-expanded={menuAbierto} aria-controls="menu-principal">☰</button>
           <h1>{actual.titulo}</h1>
           <Campana />
         </header>
