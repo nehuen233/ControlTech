@@ -309,3 +309,4 @@
 @media (max-width: 860px) {
   .pp-encabezado-num { display: none; }
 }
+.pp-pasos-titulo span { display: block; font-weight: 400; font-size: .8rem; color: var(--muted); margin-top: .1rem; }

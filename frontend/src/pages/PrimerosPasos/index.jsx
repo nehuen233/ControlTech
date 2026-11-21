@@ -6,7 +6,7 @@ import { useAuth } from '../../AuthContext.jsx'
 import { api } from '../../api.js'
 import { Alerta } from '../../components/ui.jsx'
 import { PASOS, PASOS_TAREA, RUTA, cargarDatos, estadoPasos, contarHechos, pasoParaRetomar, marcarDespues, olvidarDespues } from './progreso.js'
-import { IconoCheck } from './iconos.jsx'
+import { IconoBandera, IconoCheck } from './iconos.jsx'
 import PasoInstitucion from './PasoInstitucion.jsx'
 import PasoLaboratorios from './PasoLaboratorios.jsx'
 import PasoComputadoras from './PasoComputadoras.jsx'
@@ -111,7 +111,7 @@ export default function PrimerosPasos() {
 
       <div className="pp-cuerpo">
         <nav className="pp-pasos" aria-label="Pasos de la configuración">
-          <p className="pp-pasos-titulo">Primeros pasos</p>
+          <p className="pp-pasos-titulo">Primeros pasos <span>{hechos} de {PASOS_TAREA.length} hechos</span></p>
           <ol>
             {PASOS.map((p, n) => {
               const hecho = Boolean(estado[p.id])
@@ -120,7 +120,7 @@ export default function PrimerosPasos() {
                 <li key={p.id}>
                   <a href={`#/${RUTA}/${p.id}`} className={`pp-paso ${esActual ? 'es-actual' : ''} ${hecho ? 'es-hecho' : ''}`}
                     aria-current={esActual ? 'step' : undefined}>
-                    <span className="pp-paso-marca" aria-hidden="true">{hecho && !esActual ? <IconoCheck width={14} height={14} /> : n + 1}</span>
+                    <span className="pp-paso-marca" aria-hidden="true">{hecho && !esActual ? <IconoCheck width={14} height={14} /> : p.id === 'resumen' ? <IconoBandera width={14} height={14} /> : n + 1}</span>
                     <span className="pp-paso-texto">
                       {p.titulo}
                       <span className="pp-paso-estado">{esActual ? 'Estás acá' : hecho ? 'Hecho' : p.opcional ? 'Opcional' : 'Pendiente'}</span>
@@ -135,12 +135,12 @@ export default function PrimerosPasos() {
 
         <main className="pp-principal">
           <div className="pp-movil" aria-hidden="true">
-            <span>Paso {i + 1} de {PASOS.length}</span>
+            <span>{i < PASOS_TAREA.length ? `Paso ${i + 1} de ${PASOS_TAREA.length}` : 'Revisión final'}</span>
             <span>{hechos} de {PASOS_TAREA.length} hechos</span>
           </div>
           <div className="pp-movil-barra" role="progressbar" aria-label="Progreso de la configuración"
-            aria-valuemin={0} aria-valuemax={PASOS.length} aria-valuenow={i + 1} aria-valuetext={`Paso ${i + 1} de ${PASOS.length}: ${actual.titulo}`}>
-            <span style={{ width: `${((i + 1) / PASOS.length) * 100}%` }} />
+            aria-valuemin={0} aria-valuemax={PASOS_TAREA.length} aria-valuenow={hechos} aria-valuetext={`${hechos} de ${PASOS_TAREA.length} pasos hechos; ahora: ${actual.titulo}`}>
+            <span style={{ width: `${(hechos / PASOS_TAREA.length) * 100}%` }} />
           </div>
 
           <div className="pp-contenido">

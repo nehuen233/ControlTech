@@ -34,7 +34,7 @@ export default function PasoResumen({ datos, estado, titulo, numero, onAtras, ir
 
   return (
     <div className="pp-paso-form">
-      <EncabezadoPaso numero={numero} titulo="Resumen" refTitulo={titulo}>
+      <EncabezadoPaso numero={numero} titulo="Revisión final" refTitulo={titulo}>
         {faltaLoMinimo
           ? 'Revisá lo que cargaste. Podés finalizar igual, pero ControlTech se aprovecha mejor con al menos un laboratorio y sus computadoras.'
           : 'Esto es lo que quedó cargado. Si está todo bien, finalizá la configuración.'}

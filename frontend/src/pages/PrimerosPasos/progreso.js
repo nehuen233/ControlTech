@@ -9,9 +9,10 @@ export const PASOS = [
   { id: 'computadoras', titulo: 'Computadoras' },
   { id: 'equipo', titulo: 'Equipo de trabajo', opcional: true },
   { id: 'software', titulo: 'Software', opcional: true },
-  { id: 'resumen', titulo: 'Resumen' },
+  { id: 'resumen', titulo: 'Revisión final' },
 ]
-// Pasos que se cuentan en "Configuración X de 5" (el resumen no es una tarea).
+// Pasos que se numeran y se cuentan en "X de 5 hechos": la revisión final no es una tarea,
+// por eso no lleva número (así el asistente y el aviso del sistema usan la misma cuenta).
 export const PASOS_TAREA = PASOS.filter((p) => p.id !== 'resumen')
 
 const DATOS_EXTRA = ['cuit', 'direccion', 'localidad', 'provincia', 'email_contacto', 'telefono', 'logo_url']
